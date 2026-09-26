@@ -6,7 +6,13 @@ const AI = { run: async () => ({}) };
 describe('judgeConfig', () => {
   it('uses TypeSafe alone when it is the only credential', () => {
     expect(judgeConfig({ TYPESAFE_API_KEY: 'ts', TYPESAFE_MODEL: 'jev-latest' })).toEqual({
-      providers: [{ provider: 'typesafe', apiKey: 'ts', model: 'jev-latest' }],
+      providers: [{ provider: 'typesafe', apiKey: 'ts', baseUrl: undefined, model: 'jev-latest' }],
+    });
+  });
+
+  it('passes the TypeSafe base URL from the environment', () => {
+    expect(judgeConfig({ TYPESAFE_API_KEY: 'ts', TYPESAFE_BASE_URL: 'http://127.0.0.1:8787/' })).toEqual({
+      providers: [{ provider: 'typesafe', apiKey: 'ts', baseUrl: 'http://127.0.0.1:8787/', model: undefined }],
     });
   });
 
