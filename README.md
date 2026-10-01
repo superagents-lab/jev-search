@@ -18,7 +18,7 @@ Built by Search1API. This is an independent project, not an official TypeSafe pr
 
 Try “Rust async runtimes on Hacker News this month”, “What do Reddit users think of the Framework laptop?”, or “New papers on speculative decoding”. These are plain-language requests, not hardcoded filters; the last one names no source or time and lets Jev choose. Model choices and provider coverage can vary.
 
-Each request is sent to both providers: the Jev provider reads it and Search1API searches with the query derived from it. Jev Search itself does not store queries or result clicks.
+Each request is sent to the configured Jev provider for interpretation, while Search1API receives the selected engine query. The application does not record search queries or result clicks in its own analytics; cache and request-log retention are described below.
 
 The application streams newline-delimited JSON from `POST /api/ask`: `intent` (including `judge`, the Jev provider that answered), `found` (progress counts), `lane` (ranked results), and `done`. Each engine has a 15-second deadline within an overall 30-second request deadline. Google may start speculatively while Jev interprets the question. Successful, non-empty engine responses are cached for 10 minutes to 6 hours, depending on the time window.
 
@@ -128,7 +128,7 @@ Cloudflare installs dependencies from `pnpm-lock.yaml`. The build creates the Wo
 ## Data and limitations
 
 - Search requests go to Search1API and to the Jev provider that answers them: TypeSafe directly, or Cloudflare Workers AI or Vercel AI Gateway, which forward to TypeSafe. The Jev provider also receives result titles and snippets for relevance scoring. Search1API queries the selected engines.
-- Cloudflare KV stores query-derived cache keys and result snippets for the configured TTL. Removing `CACHE` disables this cache.
+- `CACHE` stores the normalized engine query in each Cloudflare KV key and the returned result snippets for the window-based TTL (10 minutes to six hours). Removing `CACHE` disables this cache.
 - The application does not record search text, inferred queries or result clicks in its own analytics.
 - The hosted demo loads a [Cloudflare Web Analytics](https://developers.cloudflare.com/web-analytics/) beacon for page views, visits, referrers, country, browser and page-load metrics. It does not use cookies and does not record URL query strings, so search terms in `/search?q=` are not stored there. Self-hosters can remove the snippet in `src/routes/__root.tsx`.
 - The rate limiter uses the client IP. Cloudflare Workers request logging is enabled separately in the configuration; invocation logs include request URLs, which may contain the search query.
