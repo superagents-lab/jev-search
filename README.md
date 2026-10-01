@@ -77,7 +77,7 @@ Jev is available from three services that answer the same questions. Any one of 
 
 | Provider | How it is called | What it needs |
 | --- | --- | --- |
-| `typesafe` | TypeSafe's own API, `api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY` secret |
+| `typesafe` | TypeSafe's own API or a Jev-compatible endpoint | `TYPESAFE_API_KEY` secret |
 | `vercel` | Vercel AI Gateway, model `typesafe-ai/jev` | `AI_GATEWAY_API_KEY` secret |
 | `cloudflare` | Workers AI binding `AI` in `wrangler.jsonc`, model `typesafe/jev` | Nothing; billed to your Cloudflare AI Gateway credits |
 
@@ -89,6 +89,7 @@ Configuration is read from the Worker environment. Secrets are uploaded with `wr
 | `JEV_PROVIDERS` | secret, optional | `typesafe` | Enabled Jev providers in order of preference, comma-separated, e.g. `vercel,typesafe,cloudflare`. Providers not listed stay off even when their credentials exist. The first listed provider with credentials is primary; the rest are fallbacks. A listed provider without credentials is skipped. |
 | `TYPESAFE_API_KEY` | secret | | Enables `typesafe`. |
 | `AI_GATEWAY_API_KEY` | secret | | Enables `vercel`. Create it in the Vercel dashboard under AI Gateway. |
+| `TYPESAFE_BASE_URL` | var | `https://api.typesafe.ai` | Base URL for `typesafe`; `/v1/systemone` is appended. Set this to a local Jev-compatible server or custom gateway. A trailing slash is accepted. |
 | `TYPESAFE_MODEL` | var | `jev-latest` | Model ID sent to TypeSafe. |
 | `AI_GATEWAY_MODEL` | var | `typesafe-ai/jev` | Model ID sent to Vercel AI Gateway. |
 | `CLOUDFLARE_AI_MODEL` | var | `typesafe/jev` | Model ID run through the Workers AI binding. |
@@ -104,7 +105,7 @@ A request moves to the next provider only when the current one fails with HTTP 4
 
 Provider notes:
 
-- **TypeSafe** bills per token to your TypeSafe organization. Enable auto-reload there if it is your primary provider; without credit it returns 402.
+- **TypeSafe** bills per token to your TypeSafe organization. Enable auto-reload there if it is your primary provider; without credit it returns 402. Self-hosters can set `TYPESAFE_BASE_URL` to a local Jev-compatible server or custom proxy without changing the provider chain.
 - **Vercel** free-tier teams are rate-limited per model and return 429 after a few requests. Purchasing any AI Gateway credit moves the team to the paid tier, which removes the gateway's own limits. Jev is listed at no charge for input and output tokens on either tier; set a budget in Vercel in case that listing changes. The gateway's `boolean` answers map to TypeSafe's `noul` probabilities, and TypeSafe's confidence is read from the gateway's provider metadata.
 - **Cloudflare** runs the model through the Workers AI binding, so it needs no key. Jev is a third-party model billed to Cloudflare AI Gateway prepaid credits; without a balance the binding fails with "Insufficient AI Gateway credits", which this app treats as 402. Local `pnpm dev` calls Workers AI remotely through your `wrangler login` session. Remove the `ai` block from `wrangler.jsonc` to drop this provider entirely.
 

@@ -9,6 +9,7 @@
   "routes": [{ "pattern": "jev.s1.dev", "custom_domain": true }],
   "vars": {
     "SEARCH1API_BASE_URL": "https://api.search1api.com",
+    "TYPESAFE_BASE_URL": "https://api.typesafe.ai",
     "TYPESAFE_MODEL": "jev-latest",
     "AI_GATEWAY_MODEL": "typesafe-ai/jev",
     "CLOUDFLARE_AI_MODEL": "typesafe/jev"
@@ -21,7 +22,8 @@
   //                        Unlisted providers stay off even when their credentials exist; the
   //                        first with credentials is primary, the rest are fallbacks on
   //                        HTTP 402, 429 and 5xx. Example: "vercel,typesafe,cloudflare".
-  //   TYPESAFE_API_KEY     typesafe: api.typesafe.ai
+  //   TYPESAFE_API_KEY     typesafe API key
+  //   TYPESAFE_BASE_URL    optional TypeSafe-compatible endpoint; default api.typesafe.ai
   //   AI_GATEWAY_API_KEY   vercel: Vercel AI Gateway
   //                        cloudflare needs no secret; it uses the Workers AI binding below.
   // Workers AI binding for the cloudflare provider. Idle unless JEV_PROVIDERS lists cloudflare.

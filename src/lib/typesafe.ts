@@ -20,7 +20,7 @@ export interface JevBinding {
 }
 
 export type ProviderConfig =
-  | { provider: 'typesafe'; apiKey: string; model?: string }
+  | { provider: 'typesafe'; apiKey: string; model?: string; baseUrl?: string }
   | { provider: 'vercel'; apiKey: string; model?: string }
   | { provider: 'cloudflare'; ai: JevBinding; model?: string };
 
@@ -69,7 +69,7 @@ export class TypeSafeError extends Error {
   }
 }
 
-const TYPESAFE_URL = 'https://api.typesafe.ai/v1/systemone';
+const TYPESAFE_BASE_URL = 'https://api.typesafe.ai';
 const TYPESAFE_MODEL = 'jev-latest';
 const VERCEL_URL = 'https://ai-gateway.vercel.sh/v4/ai/evaluation-model';
 const VERCEL_MODEL = 'typesafe-ai/jev';
@@ -128,9 +128,10 @@ async function callTypeSafe(
   signal?: AbortSignal
 ): Promise<SystemOneResponse> {
   const model = config.model ?? TYPESAFE_MODEL;
+  const baseUrl = config.baseUrl?.trim().replace(/\/+$/, '') || TYPESAFE_BASE_URL;
   const body = await postJson(
     'typesafe',
-    TYPESAFE_URL,
+    `${baseUrl}/v1/systemone`,
     { Authorization: `Bearer ${config.apiKey}` },
     { state, model, questions },
     signal

@@ -5,6 +5,7 @@ export interface JudgeEnv {
   /** Comma-separated list of enabled providers in order of preference, e.g. `typesafe,vercel`. Unlisted providers stay off. */
   JEV_PROVIDERS?: string;
   TYPESAFE_API_KEY?: string;
+  TYPESAFE_BASE_URL?: string;
   TYPESAFE_MODEL?: string;
   AI_GATEWAY_API_KEY?: string;
   AI_GATEWAY_MODEL?: string;
@@ -54,7 +55,12 @@ function configured(env: JudgeEnv, id: ProviderId): ProviderConfig | undefined {
   switch (id) {
     case 'typesafe':
       return env.TYPESAFE_API_KEY
-        ? { provider: 'typesafe', apiKey: env.TYPESAFE_API_KEY, model: env.TYPESAFE_MODEL || undefined }
+        ? {
+            provider: 'typesafe',
+            apiKey: env.TYPESAFE_API_KEY,
+            baseUrl: env.TYPESAFE_BASE_URL || undefined,
+            model: env.TYPESAFE_MODEL || undefined,
+          }
         : undefined;
     case 'vercel':
       return env.AI_GATEWAY_API_KEY

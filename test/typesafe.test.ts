@@ -80,6 +80,16 @@ describe('TypeSafe provider', () => {
     expect(calls[0]!.body).toEqual({ state: { request: 'x' }, model: 'jev-latest', questions: QUESTIONS });
     expect(res).toEqual({ ...NATIVE, provider: 'typesafe' });
   });
+
+  it('posts to a custom base URL without duplicating trailing slashes', async () => {
+    const calls = stubFetch(() => json(200, NATIVE));
+    await systemOne(
+      one({ provider: 'typesafe', apiKey: 'ts-key', baseUrl: 'http://127.0.0.1:8787///' }),
+      { request: 'x' },
+      QUESTIONS
+    );
+    expect(calls[0]!.url).toBe('http://127.0.0.1:8787/v1/systemone');
+  });
 });
 
 describe('Cloudflare Workers AI provider', () => {
