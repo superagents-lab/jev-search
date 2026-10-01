@@ -38,7 +38,7 @@ cp .dev.vars.example .dev.vars
 pnpm dev
 ```
 
-Open http://localhost:3030. Local development uses local KV and rate-limit bindings; the Workers AI binding is remote and uses your `wrangler login` session. Keep `.dev.vars` private; it is ignored by Git. `.env.example` is provided as a variable reference, but `.dev.vars` is the documented local configuration.
+Open http://localhost:3030. Local development uses local KV and rate-limit bindings; the Workers AI binding is remote and uses your `wrangler login` session. Wrangler opens that remote session when `pnpm dev` starts, even if `JEV_PROVIDERS` is unset or excludes `cloudflare`, so authenticate with `wrangler login` or set `CLOUDFLARE_API_TOKEN` in the process environment first. Keep `.dev.vars` private; it is ignored by Git. `.env.example` is provided as a variable reference, but `.dev.vars` is the documented local configuration.
 
 ```bash
 pnpm generate-routes
