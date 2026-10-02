@@ -11,7 +11,7 @@ import appCss from '../styles.css?url';
 
 const TITLE = 'Jev Search — Picks where to search. Ranks what comes back.';
 const DESCRIPTION = "TypeSafe's Jev reads your question, selects sources, time ranges and search terms, and ranks the results. No generated answers.";
-const SHARE_IMAGE_ALT = 'Jev Search homepage with a search box, example queries and supported search engines.';
+const SHARE_IMAGE_ALT = 'Jev Search homepage with a model selector, example queries and supported search engines.';
 const WEB_ANALYTICS_BEACON = JSON.stringify({ token: '6d6e9cf679fe45cb8ce7143deb36a0c2' });
 
 export const Route = createRootRoute({

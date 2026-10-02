@@ -16,6 +16,7 @@ import { useStableOrder } from '@/lib/use-stable-order';
 
 interface SearchParams {
   q: string;
+  m?: string;
   w?: WindowId;
   s?: string;
   sort?: SortMode;
@@ -31,6 +32,7 @@ export const Route = createFileRoute('/search')({
   validateSearch: (raw: Record<string, unknown>): SearchParams => {
     const q = typeof raw.q === 'string' ? raw.q.slice(0, 300) : '';
     const out: SearchParams = { q };
+    if (typeof raw.m === 'string' && raw.m.length > 0 && raw.m.length <= 200) out.m = raw.m;
     if (typeof raw.w === 'string' && isWindowId(raw.w)) out.w = raw.w;
     if (typeof raw.s === 'string' && raw.s) out.s = raw.s;
     if (raw.sort === 'newest') out.sort = 'newest';
@@ -46,13 +48,13 @@ export const Route = createFileRoute('/search')({
   component: SearchPage,
 });
 
-function Header({ q }: { q: string }) {
+function Header({ q, model, onModelChange }: { q: string; model?: string; onModelChange: (model: string) => void }) {
   return (
     <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
       <div className="relative mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
         <Wordmark size="sm" />
         <div className="order-last w-full min-w-0 max-w-2xl sm:order-none sm:flex-1">
-          <SearchBox initial={q} compact key={q} />
+          <SearchBox initial={q} initialModel={model} compact key={`${q}:${model ?? 'auto'}`} onModelChange={onModelChange} />
         </div>
         <div className="ml-auto flex items-center gap-1">
           <ThemeToggle />
@@ -68,7 +70,7 @@ function SearchPage() {
   const params = Route.useSearch();
   const navigate = useNavigate({ from: '/search' });
   const explicitSources = parseSources(params.s);
-  const state = useAsk({ q: params.q, w: params.w, s: explicitSources });
+  const state = useAsk({ q: params.q, w: params.w, s: explicitSources, m: params.m });
 
   const sort = params.sort ?? 'best';
   const ordered = useStableOrder(state.items, sort);
@@ -78,6 +80,8 @@ function SearchPage() {
     navigate({ search: (prev) => ({ ...prev, w }) });
   const setSources = (ids: SourceId[] | undefined) =>
     navigate({ search: (prev) => ({ ...prev, s: ids?.join(',') }) });
+  const setModel = (model: string) =>
+    navigate({ search: (prev) => ({ ...prev, m: model === 'auto' ? undefined : model }) });
   const setSort = (mode: SortMode) =>
     navigate({
       search: (prev) => ({ ...prev, sort: mode === 'newest' ? mode : undefined }),
@@ -86,7 +90,7 @@ function SearchPage() {
 
   return (
     <>
-      <Header q={params.q} />
+      <Header q={params.q} model={params.m} onModelChange={setModel} />
       <main className="mx-auto w-full max-w-5xl px-4 py-4">
         {!params.q.trim() && <p className="text-muted-foreground">Type something to search.</p>}
 

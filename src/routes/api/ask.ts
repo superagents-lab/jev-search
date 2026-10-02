@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { askStream, type AskEvent } from '@/lib/pipeline';
+import { selectModel } from '@/lib/judge-config';
 import { validateAskRequest } from '@/lib/validate';
 import { getEnv, getJudgeConfig } from '@/server/env.server';
 
@@ -48,6 +49,13 @@ export const Route = createFileRoute('/api/ask')({
           return json(400, { error: error instanceof Error ? error.message : 'Bad request' });
         }
 
+        let judge: ReturnType<typeof getJudgeConfig>;
+        try {
+          judge = selectModel(getJudgeConfig(env), data.m);
+        } catch (error) {
+          return json(400, { error: error instanceof Error ? error.message : 'Invalid model' });
+        }
+
         if (env.SEARCH_RATE_LIMIT) {
           const { success } = await env.SEARCH_RATE_LIMIT.limit({ key: clientKey(request) });
           if (!success) {
@@ -57,7 +65,7 @@ export const Route = createFileRoute('/api/ask')({
 
         const deps = {
           search1api: { apiKey: env.SEARCH1API_API_KEY, baseUrl: env.SEARCH1API_BASE_URL },
-          judge: getJudgeConfig(env),
+          judge,
           cache: env.CACHE,
         };
         const signal = AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]);

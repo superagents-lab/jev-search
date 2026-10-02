@@ -47,7 +47,7 @@ export interface IntentEvent {
     entity: Intent['entity'];
   };
   intentMs: number;
-  /** Jev provider that interpreted the request. */
+  /** Decision provider that interpreted the request. */
   judge: ProviderId;
 }
 
@@ -90,7 +90,7 @@ const WINDOW_TOLERANCE = 1.5;
 
 export interface PipelineDeps {
   search1api: Search1ApiConfig;
-  /** Jev providers, primary first. */
+  /** Decision providers, primary first. */
   judge: JudgeConfig;
   /** Optional KV-like store; lanes are cached by query, engine and window. */
   cache?: ResultCache;
@@ -243,7 +243,7 @@ export async function* askStream(
           item.ranked = true;
         }
       } catch (err) {
-        error = `jev: ${err instanceof Error ? err.message : String(err)}`;
+        error = `model: ${err instanceof Error ? err.message : String(err)}`;
       }
     }
     return {

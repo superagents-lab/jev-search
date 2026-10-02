@@ -139,6 +139,44 @@ describe('Cloudflare Workers AI provider', () => {
   });
 });
 
+describe('Cloudflare Clef providers', () => {
+  it.each(['clef', 'clef-flash'] as const)('runs %s with the required model selector and native response', async (provider) => {
+    const ai = fakeBinding(async () => ({ ...NATIVE, model: provider }));
+    const controller = new AbortController();
+    const res = await systemOne(one({ provider, ai }), { request: 'x' }, QUESTIONS, controller.signal);
+    expect(ai.run).toHaveBeenCalledWith(
+      `@cf/cloudflare/${provider}`,
+      { model: provider, state: { request: 'x' }, questions: QUESTIONS },
+      { signal: controller.signal }
+    );
+    expect(res).toEqual({ ...NATIVE, model: provider, provider });
+  });
+
+  it('falls back from Clef to Jev when the Clef binding is throttled', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const ai = fakeBinding(async (model) => {
+      if (model === '@cf/cloudflare/clef-flash') throw new Error('429 Too Many Requests');
+      return NATIVE;
+    });
+    const res = await systemOne({ providers: [{ provider: 'clef-flash', ai }, { provider: 'cloudflare', ai }] }, 'x', QUESTIONS);
+    expect(ai.run.mock.calls.map(([model]) => model)).toEqual(['@cf/cloudflare/clef-flash', 'typesafe/jev']);
+    expect(res.provider).toBe('cloudflare');
+    expect(warn.mock.calls.map((call) => String(call[0]))).toContain(
+      '[jev] clef-flash returned HTTP 429; retrying with cloudflare'
+    );
+  });
+
+  it('names Clef in a provider error', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const ai = fakeBinding(async () => { throw new Error('503 Service Unavailable'); });
+    await expect(systemOne(one({ provider: 'clef', ai }), 'x', QUESTIONS)).rejects.toMatchObject({
+      status: 503,
+      provider: 'clef',
+      message: 'Clef is temporarily unavailable. Please try again shortly.',
+    });
+  });
+});
+
 describe('Vercel AI Gateway provider', () => {
   const config = one({ provider: 'vercel', apiKey: 'vc-key' });
 
@@ -269,6 +307,6 @@ describe('provider chain', () => {
   });
 
   it('rejects an empty chain', async () => {
-    await expect(systemOne({ providers: [] }, 'x', QUESTIONS)).rejects.toThrow(/No Jev provider/);
+    await expect(systemOne({ providers: [] }, 'x', QUESTIONS)).rejects.toThrow(/No decision provider/);
   });
 });

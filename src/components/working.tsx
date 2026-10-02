@@ -4,12 +4,21 @@ import { OFF_TOPIC } from './results';
 import { sourceById, windowById, type SourceId } from '@/lib/sources';
 import type { AskState } from '@/lib/use-ask';
 import { cn } from '@/lib/utils';
+import type { ProviderId } from '@/lib/typesafe';
 import { SourceIcon } from './source-icon';
 
 function list(names: string[]): string {
   if (names.length <= 1) return names.join('');
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
+
+const providerLabel: Record<ProviderId, string> = {
+  typesafe: 'TypeSafe',
+  vercel: 'Vercel AI Gateway',
+  cloudflare: 'Cloudflare Workers AI',
+  clef: 'Cloudflare Workers AI',
+  'clef-flash': 'Cloudflare Workers AI',
+};
 
 type Line = { key: string; state: 'doing' | 'done' | 'failed'; text: React.ReactNode; icon?: SourceId };
 
@@ -147,6 +156,7 @@ export function Working({ state, actions }: { state: AskState; actions?: React.R
               <span>
                 Looking for <span className="text-foreground">“{intent.query}”</span>
                 {window && <span> · {window}</span>}
+                <span> · interpreted via {providerLabel[intent.judge]}</span>
               </span>
             </li>
           )}

@@ -1,8 +1,8 @@
 # Copy to .dev.vars for local development.
 SEARCH1API_API_KEY=
-# Enabled Jev providers in order of preference: typesafe, vercel, cloudflare. Unlisted providers
+# Enabled decision providers in order of preference: typesafe, vercel, cloudflare, clef, clef-flash. Unlisted providers
 # stay off; extra listed ones are fallbacks on 402, 429 and 5xx. Empty means typesafe.
 JEV_PROVIDERS=typesafe
 TYPESAFE_API_KEY=
 AI_GATEWAY_API_KEY=
-# The cloudflare provider uses the Workers AI binding: no key, just `wrangler login`.
+# The cloudflare, clef and clef-flash providers use the Workers AI binding: no key, just `wrangler login`.

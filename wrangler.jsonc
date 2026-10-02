@@ -18,15 +18,15 @@
   // which also drives type generation. Only SEARCH1API_API_KEY and the key of your primary Jev
   // provider are needed; there is no `secrets.required` because Wrangler would then refuse to
   // deploy without the optional ones.
-  //   JEV_PROVIDERS        enabled Jev providers in order of preference; default "typesafe".
+  //   JEV_PROVIDERS        enabled decision providers in order of preference; default "typesafe".
   //                        Unlisted providers stay off even when their credentials exist; the
   //                        first with credentials is primary, the rest are fallbacks on
-  //                        HTTP 402, 429 and 5xx. Example: "vercel,typesafe,cloudflare".
+  //                        HTTP 402, 429 and 5xx. Example: "clef-flash,clef,typesafe".
   //   TYPESAFE_API_KEY     typesafe API key
   //   TYPESAFE_BASE_URL    optional TypeSafe-compatible endpoint; default api.typesafe.ai
   //   AI_GATEWAY_API_KEY   vercel: Vercel AI Gateway
-  //                        cloudflare needs no secret; it uses the Workers AI binding below.
-  // Workers AI binding for the cloudflare provider. Idle unless JEV_PROVIDERS lists cloudflare.
+  //                        cloudflare, clef and clef-flash need no secret; they use the binding below.
+  // Workers AI binding for cloudflare, clef and clef-flash. Idle unless JEV_PROVIDERS lists one.
   "ai": { "binding": "AI", "remote": true },
   "ratelimits": [{
     "name": "SEARCH_RATE_LIMIT",

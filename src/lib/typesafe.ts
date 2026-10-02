@@ -1,18 +1,20 @@
 /**
  * Minimal Jev client plus the two judgments this app needs.
  *
- * Jev is served by three providers that speak slightly different dialects of
- * the same evaluation API. The rest of the app only sees the TypeSafe shapes
+ * Jev and Clef are served by providers that speak slightly different dialects of
+ * the same decision API. The rest of the app only sees the TypeSafe shapes
  * declared here, and a provider chain: the first provider is primary and the
  * others are tried in order when it is out of credit, throttled or failing.
  * - TypeSafe System One. Docs: https://docs.typesafe.ai/api
  * - Vercel AI Gateway, model `typesafe-ai/jev`. Docs: https://vercel.com/ai-gateway/models/jev
  * - Cloudflare Workers AI binding, model `typesafe/jev`.
  *   Docs: https://developers.cloudflare.com/ai/models/typesafe/jev/
+ * - Cloudflare Workers AI binding, models `@cf/cloudflare/clef` and `@cf/cloudflare/clef-flash`.
+ *   Docs: https://developers.cloudflare.com/workers-ai/models/clef/
  */
 import { SOURCES, WINDOWS, type SourceId, type WindowId } from './sources';
 
-export type ProviderId = 'typesafe' | 'vercel' | 'cloudflare';
+export type ProviderId = 'typesafe' | 'vercel' | 'cloudflare' | 'clef' | 'clef-flash';
 
 /** The part of Cloudflare's `Ai` binding this client uses. */
 export interface JevBinding {
@@ -22,7 +24,8 @@ export interface JevBinding {
 export type ProviderConfig =
   | { provider: 'typesafe'; apiKey: string; model?: string; baseUrl?: string }
   | { provider: 'vercel'; apiKey: string; model?: string }
-  | { provider: 'cloudflare'; ai: JevBinding; model?: string };
+  | { provider: 'cloudflare'; ai: JevBinding; model?: string }
+  | { provider: 'clef' | 'clef-flash'; ai: JevBinding };
 
 export interface JudgeConfig {
   /** Ordered: the first provider is primary, the rest are fallbacks. */
@@ -75,11 +78,12 @@ const VERCEL_URL = 'https://ai-gateway.vercel.sh/v4/ai/evaluation-model';
 const VERCEL_MODEL = 'typesafe-ai/jev';
 const CLOUDFLARE_MODEL = 'typesafe/jev';
 
-function failureMessage(status: number): string {
+function failureMessage(status: number, provider: ProviderId): string {
   // Provider error bodies are implementation details and may contain request data.
-  if (status >= 500) return 'Jev is temporarily unavailable. Please try again shortly.';
-  if (status === 429) return 'Jev is receiving too many requests. Please try again shortly.';
-  return `Jev could not process this request (HTTP ${status}).`;
+  const model = provider === 'clef' ? 'Clef' : provider === 'clef-flash' ? 'Clef-flash' : 'Jev';
+  if (status >= 500) return `${model} is temporarily unavailable. Please try again shortly.`;
+  if (status === 429) return `${model} is receiving too many requests. Please try again shortly.`;
+  return `${model} could not process this request (HTTP ${status}).`;
 }
 
 async function postJson(
@@ -97,7 +101,7 @@ async function postJson(
   });
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);
-    throw new TypeSafeError(response.status, failureMessage(response.status), provider);
+    throw new TypeSafeError(response.status, failureMessage(response.status, provider), provider);
   }
   return response.json();
 }
@@ -141,23 +145,25 @@ async function callTypeSafe(
 
 // Cloudflare Workers AI: same dialect, delivered through the `AI` binding.
 async function callCloudflare(
-  config: Extract<ProviderConfig, { provider: 'cloudflare' }>,
+  config: Extract<ProviderConfig, { ai: JevBinding }>,
   state: unknown,
   questions: Record<string, Question>,
   signal?: AbortSignal
 ): Promise<SystemOneResponse> {
-  const model = config.model ?? CLOUDFLARE_MODEL;
+  const model = config.provider === 'cloudflare' ? (config.model ?? CLOUDFLARE_MODEL) : config.provider;
+  const bindingModel = config.provider === 'cloudflare' ? model : `@cf/cloudflare/${model}`;
+  const inputs = config.provider === 'cloudflare' ? { state, questions } : { model, state, questions };
   let body: unknown;
   try {
-    body = await config.ai.run(model, { state, questions }, signal ? { signal } : {});
+    body = await config.ai.run(bindingModel, inputs, signal ? { signal } : {});
   } catch (error) {
     if (signal?.aborted) throw error;
     const status = bindingStatus(error);
     // The binding's message is a Cloudflare error string, not request data; keep it in server logs.
-    console.warn(`[jev] cloudflare binding failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
-    throw new TypeSafeError(status, failureMessage(status), 'cloudflare');
+    console.warn(`[jev] ${config.provider} binding failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+    throw new TypeSafeError(status, failureMessage(status, config.provider), config.provider);
   }
-  return normalise('cloudflare', model, body as Partial<NativeResponse>);
+  return normalise(config.provider, model, body as Partial<NativeResponse>);
 }
 
 /** The binding reports upstream failures as thrown errors; recover an HTTP-like status from the message. */
@@ -259,6 +265,8 @@ function callProvider(
     case 'vercel':
       return callVercel(config, state, questions, signal);
     case 'cloudflare':
+    case 'clef':
+    case 'clef-flash':
       return callCloudflare(config, state, questions, signal);
     default:
       return callTypeSafe(config, state, questions, signal);
@@ -277,7 +285,7 @@ export async function systemOne(
   questions: Record<string, Question>,
   signal?: AbortSignal
 ): Promise<SystemOneResponse> {
-  if (config.providers.length === 0) throw new Error('No Jev provider is configured');
+  if (config.providers.length === 0) throw new Error('No decision provider is configured');
   for (let index = 0; ; index++) {
     const provider = config.providers[index]!;
     try {

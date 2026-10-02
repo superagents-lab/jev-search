@@ -3,6 +3,10 @@ import { SOURCE_IDS } from '@/lib/sources';
 import { validateAskRequest } from '@/lib/validate';
 
 describe('search source validation', () => {
+  it('accepts a bounded model choice for the server to check against configured models', () => {
+    expect(validateAskRequest({ q: 'Bun', m: 'clef' })).toEqual({ q: 'Bun', m: 'clef' });
+    expect(() => validateAskRequest({ q: 'Bun', m: { provider: 'clef' } })).toThrow('m must be a model id');
+  });
   it('deduplicates valid sources while preserving their first occurrence', () => {
     expect(validateAskRequest({ q: ' Bun ', w: '7d', s: ['reddit', 'github', 'reddit', 'invalid', null, 'github'] }))
       .toEqual({ q: 'Bun', w: '7d', s: ['reddit', 'github'] });

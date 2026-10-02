@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { judgeConfig } from '@/lib/judge-config';
+import { configuredModels, judgeConfig, selectModel } from '@/lib/judge-config';
 
 const AI = { run: async () => ({}) };
 
@@ -19,6 +19,15 @@ describe('judgeConfig', () => {
   it('leaves unlisted providers off even when their credentials exist', () => {
     const config = judgeConfig({ TYPESAFE_API_KEY: 'ts', AI, AI_GATEWAY_API_KEY: 'vc' });
     expect(config.providers.map((p) => p.provider)).toEqual(['typesafe']);
+  });
+
+  it('enables both Clef models through the existing AI binding without a key', () => {
+    const config = judgeConfig({ JEV_PROVIDERS: 'clef-flash,clef,cloudflare', AI });
+    expect(config.providers).toEqual([
+      { provider: 'clef-flash', ai: AI },
+      { provider: 'clef', ai: AI },
+      { provider: 'cloudflare', ai: AI, model: undefined },
+    ]);
   });
 
   it('chains every listed provider in the given order', () => {
@@ -48,10 +57,11 @@ describe('judgeConfig', () => {
 
   it('ignores an AI value that is not a binding', () => {
     expect(judgeConfig({ TYPESAFE_API_KEY: 'ts', AI: 'nope' }).providers.map((p) => p.provider)).toEqual(['typesafe']);
+    expect(() => judgeConfig({ JEV_PROVIDERS: 'clef', AI: 'nope' })).toThrow(/the AI binding in wrangler.jsonc/);
   });
 
   it('explains what is missing when nothing is configured', () => {
-    expect(() => judgeConfig({})).toThrow(/No Jev provider is configured for JEV_PROVIDERS=typesafe; set TYPESAFE_API_KEY/);
+    expect(() => judgeConfig({})).toThrow(/No decision provider is configured for JEV_PROVIDERS=typesafe; set TYPESAFE_API_KEY/);
     expect(() => judgeConfig({ JEV_PROVIDERS: 'typesafe,cloudflare' })).toThrow(
       /JEV_PROVIDERS=typesafe,cloudflare; set TYPESAFE_API_KEY or the AI binding in wrangler.jsonc/
     );
@@ -62,5 +72,37 @@ describe('judgeConfig', () => {
 
   it('rejects unknown provider names', () => {
     expect(() => judgeConfig({ JEV_PROVIDERS: 'openai', TYPESAFE_API_KEY: 'ts' })).toThrow(/unknown provider "openai"/);
+  });
+});
+
+describe('model selection', () => {
+  const config = judgeConfig({
+    JEV_PROVIDERS: 'clef-flash,typesafe,cloudflare,clef,vercel',
+    TYPESAFE_API_KEY: 'ts',
+    AI_GATEWAY_API_KEY: 'vc',
+    AI,
+  });
+
+  it('lists each configured model once in provider order', () => {
+    expect(configuredModels(config)).toEqual([
+      { id: 'clef-flash', label: 'Clef-flash' },
+      { id: 'jev', label: 'Jev' },
+      { id: 'clef', label: 'Clef' },
+    ]);
+  });
+
+  it('keeps same-model provider fallbacks and excludes other models', () => {
+    expect(selectModel(config, 'jev').providers.map((p) => p.provider)).toEqual(['typesafe', 'cloudflare', 'vercel']);
+    expect(selectModel(config, 'clef').providers.map((p) => p.provider)).toEqual(['clef']);
+    expect(selectModel(config, 'auto')).toBe(config);
+    expect(() => selectModel(config, 'unknown')).toThrow('Selected model is not available');
+  });
+
+  it('shows a custom configured model separately', () => {
+    const custom = judgeConfig({ JEV_PROVIDERS: 'typesafe,vercel', TYPESAFE_API_KEY: 'ts', AI_GATEWAY_API_KEY: 'vc', TYPESAFE_MODEL: 'my-decision-v2' });
+    expect(configuredModels(custom)).toEqual([
+      { id: 'model:my-decision-v2', label: 'my-decision-v2' },
+      { id: 'jev', label: 'Jev' },
+    ]);
   });
 });

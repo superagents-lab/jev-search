@@ -50,7 +50,7 @@ function reduce(s: AskState, event: Incoming): AskState {
 }
 
 /** Consume POST /api/ask as it streams, one JSON event per line. */
-export function useAsk(params: { q: string; w?: WindowId; s?: SourceId[] }) {
+export function useAsk(params: { q: string; w?: WindowId; s?: SourceId[]; m?: string }) {
   // Server render already shows "Reading your question" so the first frame matches the second.
   const [state, setState] = useState<AskState>(() =>
     params.q.trim() ? { ...IDLE, phase: 'understanding' } : IDLE

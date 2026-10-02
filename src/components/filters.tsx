@@ -111,7 +111,7 @@ export function Filters({
             }}
             type="button"
           >
-            let Jev decide
+            let model decide
           </button>
         )}
       </div>

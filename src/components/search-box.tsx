@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router';
-import { SearchIcon } from 'lucide-react';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { CheckIcon, ChevronDownIcon, SearchIcon } from 'lucide-react';
+import { Select as SelectPrimitive } from 'radix-ui';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 /** Newlines never reach the URL: a pasted or wrapped request is one line of words. */
@@ -18,18 +19,37 @@ const supportsFieldSizing = () => typeof CSS !== 'undefined' && CSS.supports('fi
  */
 export function SearchBox({
   initial = '',
+  initialModel = 'auto',
   compact = false,
   autoFocus = false,
+  onModelChange,
 }: {
   initial?: string;
+  initialModel?: string;
   compact?: boolean;
   autoFocus?: boolean;
+  onModelChange?: (model: string) => void;
 }) {
   const [value, setValue] = useState(initial);
+  const [model, setModel] = useState(initialModel);
+  const [models, setModels] = useState<{ id: string; label: string }[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [clipped, setClipped] = useState(false);
   const navigate = useNavigate();
   const field = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/models', { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Models unavailable')))
+      .then((body: unknown) => {
+        if (typeof body === 'object' && body !== null && 'models' in body && Array.isArray(body.models)) {
+          setModels(body.models as { id: string; label: string }[]);
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   useLayoutEffect(() => {
     const el = field.current;
@@ -50,7 +70,7 @@ export function SearchBox({
     if (!q) return;
     form?.querySelector('textarea')?.blur();
     // A new request resets explicit filters so the judge decides again.
-    navigate({ to: '/search', search: { q }, viewTransition: true });
+    navigate({ to: '/search', search: { q, m: model === 'auto' ? undefined : model }, viewTransition: true });
   };
 
   return (
@@ -63,7 +83,7 @@ export function SearchBox({
       role="search"
     >
       {/* The pill is this wrapper, so the text fade below never touches the border. */}
-      <div className="rounded-3xl border border-input shadow-sm transition-[color,box-shadow] has-focus-visible:border-ring has-focus-visible:shadow-md has-focus-visible:ring-[3px] has-focus-visible:ring-ring/50 dark:bg-input/30">
+      <div className="flex items-start rounded-3xl border border-input shadow-sm transition-[color,box-shadow] has-focus-visible:border-ring has-focus-visible:shadow-md has-focus-visible:ring-[3px] has-focus-visible:ring-ring/50 dark:bg-input/30">
         <SearchIcon
           aria-hidden
           className={cn('pointer-events-none absolute left-4 text-muted-foreground', compact ? 'top-3 size-4' : 'top-3.5 size-5')}
@@ -73,7 +93,7 @@ export function SearchBox({
           autoComplete="off"
           autoFocus={autoFocus}
           className={cn(
-            'block w-full min-w-0 resize-none overflow-hidden bg-transparent pl-11 pr-4 leading-6 outline-none placeholder:text-muted-foreground',
+            'block min-w-0 flex-1 resize-none overflow-hidden bg-transparent pl-11 pr-2 leading-6 outline-none placeholder:text-muted-foreground',
             compact ? 'py-2 text-base md:text-sm' : 'py-3 text-base',
             !expanded && clipped && '[mask-image:linear-gradient(to_right,black_calc(100%-3.5rem),transparent_calc(100%-1rem))]'
           )}
@@ -96,6 +116,60 @@ export function SearchBox({
           value={value}
           wrap={expanded ? 'soft' : 'off'}
         />
+        {(models.length > 1 || model !== 'auto') && (
+          <div className={cn('mr-2 shrink-0', compact ? 'mt-1' : 'mt-2')}>
+            <SelectPrimitive.Root
+              onValueChange={(nextModel) => {
+                setModel(nextModel);
+                if (oneLine(value) === oneLine(initial)) onModelChange?.(nextModel);
+              }}
+              value={model}
+            >
+              <SelectPrimitive.Trigger
+                aria-label="Decision model"
+                className={cn(
+                  'flex max-w-36 items-center gap-1.5 rounded-full bg-transparent pl-3 pr-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground focus-visible:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+                  compact ? 'h-7' : 'h-8'
+                )}
+              >
+                <SelectPrimitive.Value />
+                <SelectPrimitive.Icon>
+                  <ChevronDownIcon aria-hidden className="size-3" />
+                </SelectPrimitive.Icon>
+              </SelectPrimitive.Trigger>
+              <SelectPrimitive.Portal>
+                <SelectPrimitive.Content
+                  align="end"
+                  className="z-50 min-w-40 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                  collisionPadding={8}
+                  position="popper"
+                  sideOffset={8}
+                >
+                  <SelectPrimitive.Viewport>
+                    {[
+                      { id: 'auto', label: 'Auto' },
+                      ...(model !== 'auto' && !models.some((option) => option.id === model)
+                        ? [{ id: model, label: 'Unavailable model' }]
+                        : []),
+                      ...models,
+                    ].map((option) => (
+                      <SelectPrimitive.Item
+                        className="relative flex min-h-9 cursor-default select-none items-center rounded-lg py-2 pr-8 pl-3 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:font-medium"
+                        key={option.id}
+                        value={option.id}
+                      >
+                        <SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText>
+                        <SelectPrimitive.ItemIndicator className="absolute right-3 text-primary-text">
+                          <CheckIcon aria-hidden className="size-3.5" />
+                        </SelectPrimitive.ItemIndicator>
+                      </SelectPrimitive.Item>
+                    ))}
+                  </SelectPrimitive.Viewport>
+                </SelectPrimitive.Content>
+              </SelectPrimitive.Portal>
+            </SelectPrimitive.Root>
+          </div>
+        )}
       </div>
     </form>
   );

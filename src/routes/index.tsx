@@ -33,6 +33,7 @@ const EXAMPLES: Example[] = [
 
 function Home() {
   const [preview, setPreview] = useState<EnginePreview | null>(null);
+  const [model, setModel] = useState('auto');
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center px-4 pb-12 pt-16 sm:py-20">
@@ -43,7 +44,7 @@ function Home() {
         Picks where to search. Ranks what comes back.
       </p>
       <div className="mt-7 w-full sm:mt-8">
-        <SearchBox autoFocus />
+        <SearchBox autoFocus onModelChange={setModel} />
       </div>
       <ul aria-label="Example searches" className="mt-4 w-full px-4 text-[15px] sm:text-sm">
         {EXAMPLES.map((example) => (
@@ -54,7 +55,7 @@ function Home() {
               onFocus={() => setPreview(example)}
               onMouseEnter={() => setPreview(example)}
               onMouseLeave={() => setPreview(null)}
-              search={{ q: example.q }}
+              search={{ q: example.q, m: model === 'auto' ? undefined : model }}
               to="/search"
               viewTransition
             >
