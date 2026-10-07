@@ -1,4 +1,4 @@
-import type { JevBinding, JudgeConfig, ProviderConfig, ProviderId } from './typesafe';
+import { OPENAI_MODEL, type JevBinding, type JudgeConfig, type ProviderConfig, type ProviderId } from './typesafe';
 
 /** The environment that selects a decision model. Variables are plain strings; `AI` is a Workers AI binding. */
 export interface JudgeEnv {
@@ -11,6 +11,8 @@ export interface JudgeEnv {
   AI_GATEWAY_MODEL?: string;
   AI?: unknown;
   CLOUDFLARE_AI_MODEL?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_DECISIONS_MODEL?: string;
 }
 
 export const DEFAULT_PROVIDER_ORDER: readonly ProviderId[] = ['typesafe'];
@@ -26,6 +28,8 @@ const ALIASES: Record<string, ProviderId> = {
   'clef-flash': 'clef-flash',
   'cloudflare-clef': 'clef',
   'cloudflare-clef-flash': 'clef-flash',
+  openai: 'openai',
+  'openai-decisions': 'openai',
 };
 
 const CREDENTIAL: Record<ProviderId, string> = {
@@ -34,6 +38,7 @@ const CREDENTIAL: Record<ProviderId, string> = {
   cloudflare: 'the AI binding in wrangler.jsonc',
   clef: 'the AI binding in wrangler.jsonc',
   'clef-flash': 'the AI binding in wrangler.jsonc',
+  openai: 'OPENAI_API_KEY',
 };
 
 function parseOrder(value: string | undefined): ProviderId[] {
@@ -79,6 +84,10 @@ function configured(env: JudgeEnv, id: ProviderId): ProviderConfig | undefined {
     case 'clef':
     case 'clef-flash':
       return isBinding(env.AI) ? { provider: id, ai: env.AI } : undefined;
+    case 'openai':
+      return env.OPENAI_API_KEY
+        ? { provider: 'openai', apiKey: env.OPENAI_API_KEY, model: env.OPENAI_DECISIONS_MODEL || undefined }
+        : undefined;
   }
 }
 
@@ -110,6 +119,12 @@ export interface ModelOption {
 function modelOption(config: ProviderConfig): ModelOption {
   if (config.provider === 'clef') return { id: 'clef', label: 'Clef' };
   if (config.provider === 'clef-flash') return { id: 'clef-flash', label: 'Clef-flash' };
+  if (config.provider === 'openai') {
+    const name = config.model ?? OPENAI_MODEL;
+    return name === OPENAI_MODEL
+      ? { id: OPENAI_MODEL, label: 'GPT-6 Luna' }
+      : { id: `model:${encodeURIComponent(name)}`, label: name };
+  }
   const name = ('model' in config ? config.model : undefined) ?? (
     config.provider === 'typesafe' ? 'jev-latest' :
     config.provider === 'vercel' ? 'typesafe-ai/jev' : 'typesafe/jev'

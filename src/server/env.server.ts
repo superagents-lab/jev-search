@@ -9,6 +9,7 @@ export function getEnv() {
     AI?: Ai;
     TYPESAFE_API_KEY?: string;
     AI_GATEWAY_API_KEY?: string;
+    OPENAI_API_KEY?: string;
     JEV_PROVIDERS?: string;
   } = workerEnv;
   if (!env.SEARCH1API_API_KEY) {

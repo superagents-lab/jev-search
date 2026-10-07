@@ -2,7 +2,7 @@
 
 [![Jev Search homepage with model selector](public/og-home.png)](https://jev.s1.dev)
 
-Search the web in plain language. A decision model such as [TypeSafe's Jev](https://typesafe.ai) or [Cloudflare's Clef](https://developers.cloudflare.com/workers-ai/models/clef/) chooses sources, time ranges and search terms, then ranks the results returned through [Search1API](https://www.search1api.com). You get links and snippets, with visible relevance scores and editable filters. No generated answers.
+Search the web in plain language. A decision model such as [TypeSafe's Jev](https://typesafe.ai), [Cloudflare's Clef](https://developers.cloudflare.com/workers-ai/models/clef/) or [OpenAI's GPT-6 Luna](https://developers.openai.com/api/docs/guides/decisions) chooses sources, time ranges and search terms, then ranks the results returned through [Search1API](https://www.search1api.com). You get links and snippets, with visible relevance scores and editable filters. No generated answers.
 
 **[Try Jev Search](https://jev.s1.dev)**
 
@@ -28,7 +28,7 @@ The optional `s` source list is capped at the number of supported sources (curre
 
 ## Local development
 
-Requires Node.js 22.12+ and pnpm 10.8.0. Obtain an API key from [Search1API](https://www.search1api.com) and configure at least one decision provider: [TypeSafe](https://typesafe.ai), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/models/clef/) or [Vercel AI Gateway](https://vercel.com/ai-gateway/models/jev); see [Decision providers](#decision-providers). Cloudflare providers use the Workers AI binding and need no separate provider key.
+Requires Node.js 22.12+ and pnpm 10.8.0. Obtain an API key from [Search1API](https://www.search1api.com) and configure at least one decision provider: [TypeSafe](https://typesafe.ai), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/models/clef/), [Vercel AI Gateway](https://vercel.com/ai-gateway/models/jev) or the [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions); see [Decision providers](#decision-providers). Cloudflare providers use the Workers AI binding and need no separate provider key.
 
 ```bash
 git clone https://github.com/superagents-lab/jev-search.git
@@ -65,6 +65,7 @@ The application uses TanStack Start, React and the Cloudflare Vite plugin. You n
 ```bash
 pnpm exec wrangler secret put SEARCH1API_API_KEY
 pnpm exec wrangler secret put TYPESAFE_API_KEY   # if using TypeSafe; see Decision providers below
+pnpm exec wrangler secret put OPENAI_API_KEY     # if using GPT-6 Luna
 pnpm cf-typegen
 pnpm test
 pnpm run deploy:dry-run
@@ -75,19 +76,20 @@ Wrangler can create the Worker when uploading its first secret. Provider keys st
 
 ### Decision providers
 
-Jev and Clef answer the same typed questions used by this app. Any one provider is enough; the others are optional fallbacks.
+Jev, Clef and GPT-6 Luna answer the same typed questions used by this app. Any one provider is enough; the others are optional fallbacks.
 
-The selector groups the default TypeSafe, Vercel and Cloudflare Jev routes as one **Jev** model. Clef and Clef-flash appear separately. A custom model ID configured for a provider appears as its own option. Provider choice stays in `JEV_PROVIDERS`; the search UI selects the model, not the route to that model.
+The selector groups the default TypeSafe, Vercel and Cloudflare Jev routes as one **Jev** model. Clef, Clef-flash and GPT-6 Luna appear separately. A custom model ID configured for a provider appears as its own option. Provider choice stays in `JEV_PROVIDERS`; the search UI selects the model, not the route to that model.
 
-#### Jev, Clef and Clef-flash
+#### Jev, Clef, Clef-flash and GPT-6 Luna
 
 | Model | Input | Context | Published median latency | Published input price |
 | --- | --- | ---: | ---: | ---: |
 | Jev | Text | 32K tokens | 524.1 ms | $0.042 / million tokens via TypeSafe directly |
 | Clef | Text and images | 65,536 tokens | 209.3 ms | $0.24 / million tokens on Workers AI |
 | Clef-flash | Text and images | 65,536 tokens | 38.8 ms | $0.09 / million tokens on Workers AI |
+| GPT-6 Luna | Text and images | Not published | Not in that comparison | $0.10 / million input tokens via OpenAI; no output charge |
 
-The latency figures are from [Cloudflare's October 2026 comparison across 43 benchmarks](https://blog.cloudflare.com/clef-decision-models/), not measurements of this app or its full search pipeline. Prices were checked on October 2, 2026 against [TypeSafe's Jev announcement](https://typesafe.ai/blog/introducing-system-one-models-and-jev), the [Clef model page](https://developers.cloudflare.com/workers-ai/models/clef/) and the [Clef-flash model page](https://developers.cloudflare.com/workers-ai/models/clef-flash/). Jev's price in the table applies to TypeSafe's direct API; Vercel and Cloudflare routes have their own billing and current prices. The app currently sends text to all three models, so Clef's vision capability is unused here.
+The latency figures are from [Cloudflare's October 2026 comparison across 43 benchmarks](https://blog.cloudflare.com/clef-decision-models/), not measurements of this app or its full search pipeline. Prices were checked on October 2, 2026 against [TypeSafe's Jev announcement](https://typesafe.ai/blog/introducing-system-one-models-and-jev), the [Clef model page](https://developers.cloudflare.com/workers-ai/models/clef/) and the [Clef-flash model page](https://developers.cloudflare.com/workers-ai/models/clef-flash/). Jev's price in the table applies to TypeSafe's direct API; Vercel and Cloudflare routes have their own billing and current prices. GPT-6 Luna's price was checked on October 7, 2026 against [OpenAI's Decisions guide](https://developers.openai.com/api/docs/guides/decisions); regional processing and long-context multipliers can raise it. The Decisions API is a public beta, so its request shape may change before general availability. The app currently sends text to every model, so Clef's and GPT-6 Luna's image input is unused here.
 
 Quality depends on the question. In [Cloudflare's published results](https://blog.cloudflare.com/clef-decision-models/), Clef scores 69.19 on ToolRet nDCG@10 versus Jev's 65.28, while Jev scores 47.52 on BRIGHT nDCG@10 versus Clef's 45.91 and Clef-flash's 39.26. These benchmarks do not establish which model chooses better sources, time windows or result rankings for Jev Search. Compare those decisions on the same search queries before changing the default provider order.
 
@@ -98,6 +100,7 @@ Quality depends on the question. In [Cloudflare's published results](https://blo
 | `cloudflare` | Workers AI binding `AI` in `wrangler.jsonc`, model `typesafe/jev` | Nothing; billed to your Cloudflare AI Gateway credits |
 | `clef` | Workers AI binding `AI`, model `@cf/cloudflare/clef` | Nothing; billed to your Cloudflare Workers AI account |
 | `clef-flash` | Workers AI binding `AI`, model `@cf/cloudflare/clef-flash` | Nothing; billed to your Cloudflare Workers AI account |
+| `openai` | OpenAI Decisions API `POST /v1/decisions`, model `gpt-6-luna` | `OPENAI_API_KEY` secret |
 
 Configuration is read from the Worker environment. Secrets are uploaded with `wrangler secret put` and belong to one deployment; `vars` are committed defaults in `wrangler.jsonc`.
 
@@ -111,6 +114,8 @@ Configuration is read from the Worker environment. Secrets are uploaded with `wr
 | `TYPESAFE_MODEL` | var | `jev-latest` | Model ID sent to TypeSafe. |
 | `AI_GATEWAY_MODEL` | var | `typesafe-ai/jev` | Model ID sent to Vercel AI Gateway. |
 | `CLOUDFLARE_AI_MODEL` | var | `typesafe/jev` | Model ID run through the Workers AI binding. |
+| `OPENAI_API_KEY` | secret | | Enables `openai`. |
+| `OPENAI_DECISIONS_MODEL` | var | `gpt-6-luna` | Model ID sent to the OpenAI Decisions API. |
 
 A fresh deployment with only `SEARCH1API_API_KEY` and `TYPESAFE_API_KEY` uses TypeSafe alone. To add fallbacks, upload the extra credentials and set the order:
 
@@ -121,6 +126,8 @@ echo "vercel,typesafe,cloudflare" | pnpm exec wrangler secret put JEV_PROVIDERS
 
 To use Clef without a TypeSafe key, keep the `AI` binding in `wrangler.jsonc` and set `JEV_PROVIDERS=clef` or `JEV_PROVIDERS=clef-flash` in `.dev.vars`. For a deployed Worker, upload `JEV_PROVIDERS` as a secret; for example, `echo "clef-flash,clef" | pnpm exec wrangler secret put JEV_PROVIDERS`. Each model is an independent entry in the fallback chain. The default remains `typesafe`, so adding the binding alone does not change the active provider.
 
+To offer GPT-6 Luna, upload `OPENAI_API_KEY` and add `openai` to `JEV_PROVIDERS`, for example `typesafe,clef,clef-flash,openai`. Placing it last keeps the existing default and lets users choose **GPT-6 Luna** in the search box. An explicit GPT-6 Luna search uses only OpenAI; Auto falls back to it only after the providers listed before it fail.
+
 A request moves to the next provider only when the current one fails with HTTP 402 (no credit), 429 (throttled) or 5xx. Client errors such as 400 or 401 are not retried, and nothing is retried after the request is cancelled. Each hop is logged as `[jev] <provider> returned HTTP <status>; retrying with <next>`, and the `intent` event's `judge` field names the provider that answered.
 
 Provider notes:
@@ -129,6 +136,7 @@ Provider notes:
 - **Vercel** free-tier teams are rate-limited per model and return 429 after a few requests. Purchasing any AI Gateway credit moves the team to the paid tier, which removes the gateway's own limits. The [current Jev model page](https://vercel.com/ai-gateway/models/jev) lists input pricing from $0.04 per million tokens; check the live price and set a budget before using this route. The gateway's `boolean` answers map to TypeSafe's `noul` probabilities, and TypeSafe's confidence is read from the gateway's provider metadata.
 - **Cloudflare** runs the model through the Workers AI binding, so it needs no key. Jev is a third-party model billed to Cloudflare AI Gateway prepaid credits; without a balance the binding fails with "Insufficient AI Gateway credits", which this app treats as 402. Local `pnpm dev` calls Workers AI remotely through your `wrangler login` session. Remove the `ai` block from `wrangler.jsonc` to drop this provider entirely.
 - **Clef / Clef-flash** run Cloudflare's own decision models through the same binding. Their requests include the required `model` selector and use the native System One answer shape. Cloudflare documents [Clef](https://developers.cloudflare.com/workers-ai/models/clef/) and [Clef-flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/) separately. Local `pnpm dev` calls them remotely through your `wrangler login` session.
+- **OpenAI** bills GPT-6 Luna per input token to your OpenAI organization. Decisions predicates have no `criteria` field, so the app appends the true and false criteria to the question instructions, and it sends the request state as JSON text. An answer of type `refusal` counts as no answer: the source stays off, or the result gets zero relevance. Without credit, OpenAI returns HTTP 429 `insufficient_quota`, which moves Auto to the next provider. Keep a funded balance or auto-recharge if it is your primary provider.
 
 `.dev.vars.example` lists every secret and is also the input for `pnpm cf-typegen`, so the generated `worker-configuration.d.ts` does not depend on a developer's private `.dev.vars`. Add new secrets there first.
 
@@ -148,7 +156,7 @@ Cloudflare installs dependencies from `pnpm-lock.yaml`. The build creates the Wo
 
 ## Data and limitations
 
-- Search requests go to Search1API and to the decision provider that answers them: TypeSafe directly, TypeSafe's Jev through Cloudflare Workers AI or Vercel AI Gateway, or Cloudflare's Clef models through Workers AI. The decision provider also receives result titles and snippets for relevance scoring. Search1API queries the selected engines.
+- Search requests go to Search1API and to the decision provider that answers them: TypeSafe directly, TypeSafe's Jev through Cloudflare Workers AI or Vercel AI Gateway, Cloudflare's Clef models through Workers AI, or OpenAI's GPT-6 Luna through the OpenAI API. The decision provider also receives result titles and snippets for relevance scoring. Search1API queries the selected engines.
 - `CACHE` stores the normalized engine query in each Cloudflare KV key and the returned result snippets for the window-based TTL (10 minutes to six hours). Removing `CACHE` disables this cache.
 - The application does not record search text, inferred queries or result clicks in its own analytics.
 - The hosted demo loads a [Cloudflare Web Analytics](https://developers.cloudflare.com/web-analytics/) beacon for page views, visits, referrers, country, browser and page-load metrics. It does not use cookies and does not record URL query strings, so search terms in `/search?q=` are not stored there. Self-hosters can remove the snippet in `src/routes/__root.tsx`.

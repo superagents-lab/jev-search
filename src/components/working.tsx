@@ -18,6 +18,7 @@ const providerLabel: Record<ProviderId, string> = {
   cloudflare: 'Cloudflare Workers AI',
   clef: 'Cloudflare Workers AI',
   'clef-flash': 'Cloudflare Workers AI',
+  openai: 'OpenAI',
 };
 
 type Line = { key: string; state: 'doing' | 'done' | 'failed'; text: React.ReactNode; icon?: SourceId };

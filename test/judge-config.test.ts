@@ -30,6 +30,18 @@ describe('judgeConfig', () => {
     ]);
   });
 
+  it('enables OpenAI Decisions with its key and an optional model', () => {
+    expect(judgeConfig({ JEV_PROVIDERS: 'openai-decisions,typesafe', OPENAI_API_KEY: 'sk', TYPESAFE_API_KEY: 'ts' }).providers[0]).toEqual({
+      provider: 'openai',
+      apiKey: 'sk',
+      model: undefined,
+    });
+    expect(judgeConfig({ JEV_PROVIDERS: 'openai', OPENAI_API_KEY: 'sk', OPENAI_DECISIONS_MODEL: 'gpt-6-luna' }).providers).toEqual([
+      { provider: 'openai', apiKey: 'sk', model: 'gpt-6-luna' },
+    ]);
+    expect(() => judgeConfig({ JEV_PROVIDERS: 'openai' })).toThrow(/JEV_PROVIDERS=openai; set OPENAI_API_KEY/);
+  });
+
   it('chains every listed provider in the given order', () => {
     const config = judgeConfig({
       JEV_PROVIDERS: 'typesafe,cloudflare,vercel',
@@ -71,15 +83,16 @@ describe('judgeConfig', () => {
   });
 
   it('rejects unknown provider names', () => {
-    expect(() => judgeConfig({ JEV_PROVIDERS: 'openai', TYPESAFE_API_KEY: 'ts' })).toThrow(/unknown provider "openai"/);
+    expect(() => judgeConfig({ JEV_PROVIDERS: 'anthropic', TYPESAFE_API_KEY: 'ts' })).toThrow(/unknown provider "anthropic"/);
   });
 });
 
 describe('model selection', () => {
   const config = judgeConfig({
-    JEV_PROVIDERS: 'clef-flash,typesafe,cloudflare,clef,vercel',
+    JEV_PROVIDERS: 'clef-flash,typesafe,cloudflare,clef,openai,vercel',
     TYPESAFE_API_KEY: 'ts',
     AI_GATEWAY_API_KEY: 'vc',
+    OPENAI_API_KEY: 'sk',
     AI,
   });
 
@@ -88,12 +101,14 @@ describe('model selection', () => {
       { id: 'clef-flash', label: 'Clef-flash' },
       { id: 'jev', label: 'Jev' },
       { id: 'clef', label: 'Clef' },
+      { id: 'gpt-6-luna', label: 'GPT-6 Luna' },
     ]);
   });
 
   it('keeps same-model provider fallbacks and excludes other models', () => {
     expect(selectModel(config, 'jev').providers.map((p) => p.provider)).toEqual(['typesafe', 'cloudflare', 'vercel']);
     expect(selectModel(config, 'clef').providers.map((p) => p.provider)).toEqual(['clef']);
+    expect(selectModel(config, 'gpt-6-luna').providers.map((p) => p.provider)).toEqual(['openai']);
     expect(selectModel(config, 'auto')).toBe(config);
     expect(() => selectModel(config, 'unknown')).toThrow('Selected model is not available');
   });
@@ -104,5 +119,10 @@ describe('model selection', () => {
       { id: 'model:my-decision-v2', label: 'my-decision-v2' },
       { id: 'jev', label: 'Jev' },
     ]);
+  });
+
+  it('shows a custom OpenAI model separately from GPT-6 Luna', () => {
+    const custom = judgeConfig({ JEV_PROVIDERS: 'openai', OPENAI_API_KEY: 'sk', OPENAI_DECISIONS_MODEL: 'gpt-6-luna-2026-10-06' });
+    expect(configuredModels(custom)).toEqual([{ id: 'model:gpt-6-luna-2026-10-06', label: 'gpt-6-luna-2026-10-06' }]);
   });
 });

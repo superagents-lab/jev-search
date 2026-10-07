@@ -235,6 +235,109 @@ describe('Vercel AI Gateway provider', () => {
   });
 });
 
+describe('OpenAI Decisions provider', () => {
+  const OPENAI = {
+    model: 'gpt-6-luna',
+    answers: [
+      {
+        type: 'choice',
+        name: 'window',
+        choice: '7d',
+        probabilities: [
+          { value: 'any', probability: 0.2 },
+          { value: '7d', probability: 0.8 },
+        ],
+        confidence: 0.6,
+      },
+      { type: 'predicate', name: 'source_reddit', probability: 0.91 },
+      { type: 'refusal', name: 'plain' },
+    ],
+    usage: { input_tokens: 345, input_tokens_details: { cached_tokens: 0 }, output_tokens: 0, total_tokens: 345 },
+  };
+
+  it('posts named questions with criteria folded into predicate instructions and the state as text', async () => {
+    const calls = stubFetch(() => json(200, OPENAI));
+    await systemOne(one({ provider: 'openai', apiKey: 'sk-test' }), { request: 'x' }, QUESTIONS);
+    expect(calls[0]!.url).toBe('https://api.openai.com/v1/decisions');
+    expect(calls[0]!.headers.authorization).toBe('Bearer sk-test');
+    expect(calls[0]!.body).toEqual({
+      model: 'gpt-6-luna',
+      input: '{"request":"x"}',
+      questions: [
+        {
+          type: 'choice',
+          name: 'window',
+          instructions: 'How recent?',
+          choices: [
+            { value: 'any', description: 'Any time' },
+            { value: '7d', description: 'Past week' },
+          ],
+        },
+        {
+          type: 'predicate',
+          name: 'source_reddit',
+          instructions: 'Wants Reddit?\nTrue when: Mentions Reddit\nFalse when: Does not',
+        },
+        { type: 'predicate', name: 'plain', instructions: 'No criteria' },
+      ],
+    });
+  });
+
+  it('maps answers to the native shape and drops refusals', async () => {
+    stubFetch(() => json(200, OPENAI));
+    const res = await systemOne(one({ provider: 'openai', apiKey: 'sk-test' }), 'x', QUESTIONS);
+    expect(res).toEqual({
+      model: 'gpt-6-luna',
+      provider: 'openai',
+      answers: {
+        window: { type: 'choice', choice: '7d', probabilities: { any: 0.2, '7d': 0.8 }, confidence: 0.6 },
+        source_reddit: { type: 'noul', noul: 0.91 },
+      },
+      usage: { input_tokens: 345, output_tokens: 0 },
+    });
+  });
+
+  it('sends a plain-text state unchanged, omits empty choice descriptions and honours a custom model', async () => {
+    const calls = stubFetch(() => json(200, { answers: [] }));
+    const res = await systemOne(one({ provider: 'openai', apiKey: 'sk-test', model: 'gpt-6-luna-2026-10-06' }), 'plain text', {
+      pick: { type: 'choice', instructions: 'Pick', criteria: { a: null, b: 'B' } },
+    });
+    expect(calls[0]!.body.model).toBe('gpt-6-luna-2026-10-06');
+    expect(calls[0]!.body.input).toBe('plain text');
+    expect(calls[0]!.body.questions).toEqual([
+      { type: 'choice', name: 'pick', instructions: 'Pick', choices: [{ value: 'a' }, { value: 'b', description: 'B' }] },
+    ]);
+    expect(res.model).toBe('gpt-6-luna-2026-10-06');
+    expect(res.usage).toEqual({ input_tokens: 0, output_tokens: 0 });
+  });
+
+  it('falls back when OpenAI reports exhausted credit as HTTP 429', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const calls = stubFetch((call) =>
+      call.url.includes('openai.com')
+        ? json(429, { error: { type: 'insufficient_quota', code: 'credit_balance_exhausted' } })
+        : json(200, NATIVE)
+    );
+    const res = await systemOne(
+      { providers: [{ provider: 'openai', apiKey: 'sk-test' }, { provider: 'typesafe', apiKey: 'ts' }] },
+      'x',
+      QUESTIONS
+    );
+    expect(calls.map((c) => c.url)).toEqual(['https://api.openai.com/v1/decisions', 'https://api.typesafe.ai/v1/systemone']);
+    expect(res.provider).toBe('typesafe');
+    expect(console.warn).toHaveBeenCalledWith('[jev] openai returned HTTP 429; retrying with typesafe');
+  });
+
+  it('names GPT-6 Luna in a provider error', async () => {
+    stubFetch(() => json(503, { error: { message: 'Internal request details' } }));
+    await expect(systemOne(one({ provider: 'openai', apiKey: 'sk-test' }), 'x', QUESTIONS)).rejects.toMatchObject({
+      status: 503,
+      provider: 'openai',
+      message: 'GPT-6 Luna is temporarily unavailable. Please try again shortly.',
+    });
+  });
+});
+
 describe('provider chain', () => {
   function chain(ai: JevBinding): JudgeConfig {
     return {

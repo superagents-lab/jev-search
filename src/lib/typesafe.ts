@@ -11,10 +11,11 @@
  *   Docs: https://developers.cloudflare.com/ai/models/typesafe/jev/
  * - Cloudflare Workers AI binding, models `@cf/cloudflare/clef` and `@cf/cloudflare/clef-flash`.
  *   Docs: https://developers.cloudflare.com/workers-ai/models/clef/
+ * - OpenAI Decisions API, model `gpt-6-luna`. Docs: https://developers.openai.com/api/docs/guides/decisions
  */
 import { SOURCES, WINDOWS, type SourceId, type WindowId } from './sources';
 
-export type ProviderId = 'typesafe' | 'vercel' | 'cloudflare' | 'clef' | 'clef-flash';
+export type ProviderId = 'typesafe' | 'vercel' | 'cloudflare' | 'clef' | 'clef-flash' | 'openai';
 
 /** The part of Cloudflare's `Ai` binding this client uses. */
 export interface JevBinding {
@@ -25,7 +26,8 @@ export type ProviderConfig =
   | { provider: 'typesafe'; apiKey: string; model?: string; baseUrl?: string }
   | { provider: 'vercel'; apiKey: string; model?: string }
   | { provider: 'cloudflare'; ai: JevBinding; model?: string }
-  | { provider: 'clef' | 'clef-flash'; ai: JevBinding };
+  | { provider: 'clef' | 'clef-flash'; ai: JevBinding }
+  | { provider: 'openai'; apiKey: string; model?: string };
 
 export interface JudgeConfig {
   /** Ordered: the first provider is primary, the rest are fallbacks. */
@@ -77,10 +79,13 @@ const TYPESAFE_MODEL = 'jev-latest';
 const VERCEL_URL = 'https://ai-gateway.vercel.sh/v4/ai/evaluation-model';
 const VERCEL_MODEL = 'typesafe-ai/jev';
 const CLOUDFLARE_MODEL = 'typesafe/jev';
+const OPENAI_URL = 'https://api.openai.com/v1/decisions';
+export const OPENAI_MODEL = 'gpt-6-luna';
 
 function failureMessage(status: number, provider: ProviderId): string {
   // Provider error bodies are implementation details and may contain request data.
-  const model = provider === 'clef' ? 'Clef' : provider === 'clef-flash' ? 'Clef-flash' : 'Jev';
+  const model =
+    provider === 'clef' ? 'Clef' : provider === 'clef-flash' ? 'Clef-flash' : provider === 'openai' ? 'GPT-6 Luna' : 'Jev';
   if (status >= 500) return `${model} is temporarily unavailable. Please try again shortly.`;
   if (status === 429) return `${model} is receiving too many requests. Please try again shortly.`;
   return `${model} could not process this request (HTTP ${status}).`;
@@ -255,6 +260,96 @@ async function callVercel(
   };
 }
 
+// OpenAI Decisions API: questions are a named array, `noul` is `predicate`, and evidence is text.
+type OpenAIQuestion =
+  | { type: 'predicate'; name: string; instructions: string }
+  | { type: 'choice'; name: string; instructions: string; choices: { value: string; description?: string }[] };
+type OpenAIAnswer =
+  | { type: 'predicate'; name: string; probability: number }
+  | {
+      type: 'choice';
+      name: string;
+      choice: string;
+      probabilities?: { value: string; probability: number }[];
+      confidence?: number;
+    }
+  // Returned without a probability when the model declines a question; such answers are dropped.
+  | { type: 'refusal' | 'score'; name: string };
+interface OpenAIResponse {
+  model?: string;
+  answers?: OpenAIAnswer[];
+  usage?: { input_tokens?: number; output_tokens?: number };
+}
+
+function toOpenAIQuestion(name: string, question: Question): OpenAIQuestion {
+  if (question.type === 'choice') {
+    return {
+      type: 'choice',
+      name,
+      instructions: question.instructions,
+      choices: Object.entries(question.criteria).map(([value, description]) =>
+        description ? { value, description } : { value }
+      ),
+    };
+  }
+  // Predicates have no criteria field (the API rejects it), so the criteria become part of the instructions.
+  const { true: yes, false: no } = question.criteria ?? {};
+  const instructions = [
+    question.instructions,
+    ...(yes ? [`True when: ${yes}`] : []),
+    ...(no ? [`False when: ${no}`] : []),
+  ].join('\n');
+  return { type: 'predicate', name, instructions };
+}
+
+function fromOpenAIAnswer(answer: OpenAIAnswer): Answer | undefined {
+  if (answer.type === 'predicate') return { type: 'noul', noul: answer.probability };
+  if (answer.type === 'choice') {
+    const probabilities = answer.probabilities?.length
+      ? Object.fromEntries(answer.probabilities.map((p) => [p.value, p.probability]))
+      : { [answer.choice]: 1 };
+    return {
+      type: 'choice',
+      choice: answer.choice,
+      probabilities,
+      confidence: answer.confidence ?? probabilities[answer.choice] ?? 1,
+    };
+  }
+  return undefined;
+}
+
+async function callOpenAI(
+  config: Extract<ProviderConfig, { provider: 'openai' }>,
+  state: unknown,
+  questions: Record<string, Question>,
+  signal?: AbortSignal
+): Promise<SystemOneResponse> {
+  const model = config.model ?? OPENAI_MODEL;
+  const body = (await postJson(
+    'openai',
+    OPENAI_URL,
+    { Authorization: `Bearer ${config.apiKey}` },
+    {
+      model,
+      // The state keeps its field names, so instructions can still refer to `request` or `results[i]`.
+      input: typeof state === 'string' ? state : JSON.stringify(state),
+      questions: Object.entries(questions).map(([name, question]) => toOpenAIQuestion(name, question)),
+    },
+    signal
+  )) as OpenAIResponse;
+  const answers: Record<string, Answer> = {};
+  for (const answer of body.answers ?? []) {
+    const converted = fromOpenAIAnswer(answer);
+    if (converted) answers[answer.name] = converted;
+  }
+  return {
+    model: body.model ?? model,
+    provider: 'openai',
+    answers,
+    usage: { input_tokens: body.usage?.input_tokens ?? 0, output_tokens: body.usage?.output_tokens ?? 0 },
+  };
+}
+
 function callProvider(
   config: ProviderConfig,
   state: unknown,
@@ -264,6 +359,8 @@ function callProvider(
   switch (config.provider) {
     case 'vercel':
       return callVercel(config, state, questions, signal);
+    case 'openai':
+      return callOpenAI(config, state, questions, signal);
     case 'cloudflare':
     case 'clef':
     case 'clef-flash':
