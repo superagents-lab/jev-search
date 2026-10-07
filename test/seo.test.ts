@@ -1,10 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { HOME_CANONICAL, SEARCH_ROBOTS, SITE_ORIGIN, SITEMAP_URL } from '@/lib/seo';
 
-describe('crawlable homepage only', () => {
+describe('crawl directives', () => {
   const robots = readFileSync('public/robots.txt', 'utf8');
-  const sitemap = readFileSync('public/sitemap.xml', 'utf8');
 
   it('advertises a sitemap and does not hide /search from crawlers', () => {
     expect(robots).toContain(`Sitemap: ${SITEMAP_URL}`);
@@ -14,11 +13,10 @@ describe('crawlable homepage only', () => {
     expect(robots).not.toMatch(/Disallow:\s*\/search/);
   });
 
-  it('lists only the homepage', () => {
-    const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]);
-    expect(locs).toEqual([HOME_CANONICAL]);
-    expect(sitemap).not.toContain(`${SITE_ORIGIN}/search`);
-    expect(sitemap).not.toContain('/api/');
+  it('serves the sitemap from its route; a static copy would shadow it', () => {
+    expect(existsSync('public/sitemap.xml')).toBe(false);
+    expect(readFileSync('src/routes/sitemap[.]xml.ts', 'utf8')).toContain('sitemapXml()');
+    expect(HOME_CANONICAL.startsWith(SITE_ORIGIN)).toBe(true);
   });
 
   it('wires those directives onto the routes', () => {

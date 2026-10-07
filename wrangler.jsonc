@@ -27,6 +27,7 @@
   //   TYPESAFE_BASE_URL    optional TypeSafe-compatible endpoint; default api.typesafe.ai
   //   AI_GATEWAY_API_KEY   vercel: Vercel AI Gateway
   //   OPENAI_API_KEY       openai: OpenAI Decisions API (GPT-6 Luna)
+  //   GITHUB_TOKEN         optional; authenticates the cached GitHub star-count lookup
   //                        cloudflare, clef and clef-flash need no secret; they use the binding below.
   // Workers AI binding for cloudflare, clef and clef-flash. Idle unless JEV_PROVIDERS lists one.
   "ai": { "binding": "AI", "remote": true },

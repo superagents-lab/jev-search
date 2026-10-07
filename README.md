@@ -57,7 +57,7 @@ Tests mock providers and do not need API keys. Building does not call any provid
 The application uses TanStack Start, React and the Cloudflare Vite plugin. You need a Cloudflare account with Workers and KV enabled.
 
 1. Run `pnpm exec wrangler login`.
-2. In `wrangler.jsonc`, choose a Worker `name`. Remove `routes` to use a `workers.dev` URL, or replace `jev.s1.dev` with a domain in your Cloudflare account. Update the origin in `src/lib/seo.ts`, `public/robots.txt` and `public/sitemap.xml` to match your deployment. Remove or replace the Cloudflare Web Analytics snippet in `src/routes/__root.tsx`; the committed token belongs to the hosted demo.
+2. In `wrangler.jsonc`, choose a Worker `name`. Remove `routes` to use a `workers.dev` URL, or replace `jev.s1.dev` with a domain in your Cloudflare account. Update the origin in `src/lib/seo.ts` and `public/robots.txt` to match your deployment; the sitemap and changelog feed are generated from `src/lib/seo.ts`. Remove or replace the Cloudflare Web Analytics snippet in `src/routes/__root.tsx`; the committed token belongs to the hosted demo. The changelog in `content/changelog/` describes the hosted demo; delete its entries or replace them with your own.
 3. Run `pnpm exec wrangler kv namespace create jev-search-cache` and replace the `CACHE` namespace ID with the returned ID. The committed ID belongs to the hosted demo; it is not a credential.
 4. Choose a unique rate-limit `namespace_id` in your account. The default limit is 10 searches per IP per minute per Cloudflare location; it is not a global spending cap. Searches triggered by source or time filter changes count toward the same limit. `CACHE` and `SEARCH_RATE_LIMIT` are optional; regenerate types after changing bindings.
 5. Upload your own provider keys and deploy:
@@ -116,6 +116,7 @@ Configuration is read from the Worker environment. Secrets are uploaded with `wr
 | `CLOUDFLARE_AI_MODEL` | var | `typesafe/jev` | Model ID run through the Workers AI binding. |
 | `OPENAI_API_KEY` | secret | | Enables `openai`. |
 | `OPENAI_DECISIONS_MODEL` | var | `gpt-6-luna` | Model ID sent to the OpenAI Decisions API. |
+| `GITHUB_TOKEN` | secret, optional | | Token without scopes for the repository star count shown beside the GitHub link. Without it the Worker asks GitHub anonymously, which shares a rate limit; on failure the link shows no count. |
 
 A fresh deployment with only `SEARCH1API_API_KEY` and `TYPESAFE_API_KEY` uses TypeSafe alone. To add fallbacks, upload the extra credentials and set the order:
 
@@ -162,8 +163,9 @@ Cloudflare installs dependencies from `pnpm-lock.yaml`. The build creates the Wo
 - The hosted demo loads a [Cloudflare Web Analytics](https://developers.cloudflare.com/web-analytics/) beacon for page views, visits, referrers, country, browser and page-load metrics. It does not use cookies and does not record URL query strings, so search terms in `/search?q=` are not stored there. Self-hosters can remove the snippet in `src/routes/__root.tsx`.
 - The rate limiter uses the client IP. Cloudflare Workers request logging is enabled separately in the configuration; invocation logs include request URLs, which may contain the search query.
 - The page loads a font from Google Fonts. Result links lead to third-party sites.
+- The GitHub star count beside the repository link is fetched by the Worker, not the browser, and cached in `CACHE` for an hour (ten minutes after a failed lookup). Visitors' browsers do not contact GitHub unless they follow the link. Self-hosters can change the repository in `src/lib/github-stars.ts`.
 - Production builds register a service worker so the app can be installed. It intercepts only top-level navigations when the network fails, and never `/api/ask`. Local `pnpm dev` does not register it, so Vite's module reload keeps working.
-- The sitemap lists only `https://jev.s1.dev/`. `/search` pages send `noindex, follow` so example queries and user searches are not indexed as separate documents. `robots.txt` does not `Disallow: /search`, so crawlers can still see that directive.
+- The sitemap, served by the Worker at `/sitemap.xml`, lists the homepage, `/changelog` and each changelog entry. `/search` pages send `noindex, follow` so example queries and user searches are not indexed as separate documents. `robots.txt` does not `Disallow: /search`, so crawlers can still see that directive.
 - Relevance percentages are model judgments, not verified accuracy. Search snippets may be incorrect, incomplete or stale. Date filtering and Newest sorting prefer Search1API's `published_date`, falling back to snippet dates when unavailable. Day-only dates are displayed as calendar dates and filtered with allowance for the unknown time of day; unknown dates can remain. Selecting and ranking existing results does not verify their claims.
 
 ## Project layout
@@ -180,10 +182,28 @@ Cloudflare installs dependencies from `pnpm-lock.yaml`. The build creates the Wo
 | `src/lib/rank.ts`, `merge.ts` | Ordering, grouping and URL deduplication |
 | `src/lib/use-ask.ts` | Client stream consumer |
 | `src/lib/seo.ts` | Hosted origin, canonical URL and search-page robots |
+| `src/lib/github-stars.ts` | Repository link and its cached GitHub star count |
+| `content/changelog/`, `src/lib/changelog*.ts`, `src/server/changelog.ts` | Changelog entries, their Markdown subset, the sitemap and RSS feed, and the server functions that keep entries out of the browser bundle |
 | `src/routes/api/ask.ts` | Search endpoint, origin validation and rate limiting |
-| `public/robots.txt`, `public/sitemap.xml` | Crawl hints for the homepage only |
+| `public/robots.txt`, `src/routes/sitemap[.]xml.ts` | Crawl hints: the homepage and changelog are indexable, search pages are not |
 | `src/server/` | Cloudflare bindings |
 | `test/` | Provider-independent regression tests |
+
+### Changelog entries
+
+Each notable change gets a file in `content/changelog/` named `NNNN-slug.md`. The number orders entries that share a date; the slug becomes `/changelog/<slug>`. Changing a published slug breaks its URL.
+
+```markdown
+---
+title: GPT-6 Luna joins the model selector
+date: 2026-10-07
+summary: One or two sentences (50 to 200 characters), shown in the list and used as the meta description.
+try: Optional example search linked at the end of the entry
+---
+Body text. Supported: paragraphs, `## ` headings, `- ` lists, **bold**, `code` and [links](https://example.com).
+```
+
+Other Markdown, including HTML, is shown as plain text. `pnpm test` checks every entry's front matter and lengths. The entry appears in the changelog, the sitemap and the RSS feed at `/changelog/rss.xml` on the next deploy.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and [SECURITY.md](SECURITY.md) for vulnerability reporting.
 

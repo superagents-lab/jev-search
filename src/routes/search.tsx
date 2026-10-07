@@ -58,8 +58,8 @@ function Header({ q, model, onModelChange }: { q: string; model?: string; onMode
         </div>
         <div className="ml-auto flex items-center gap-1">
           <ThemeToggle />
-          <RepositoryLink />
           <SponsorLink />
+          <RepositoryLink />
         </div>
       </div>
     </header>

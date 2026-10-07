@@ -1,12 +1,14 @@
 import { HeadContent, Link, Scripts, createRootRoute, useRouterState } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { PwaRegister } from '@/components/pwa-register';
+import { WHATS_NEW_SLOT_ID } from '@/components/whats-new';
 import { RepositoryLink } from '@/components/repository-link';
 import { SourceIcon } from '@/components/source-icon';
 import { SponsorLink } from '@/components/sponsor-link';
 import { THEME_SURFACE, ThemeToggle, themeScript } from '@/components/theme-toggle';
 import { modelCredit, useModelChoice } from '@/lib/model-choice';
 import { SHARE_IMAGE } from '@/lib/seo';
+import { getRepositoryStars } from '@/server/repository-stars';
 import { cn } from '@/lib/utils';
 import appCss from '../styles.css?url';
 
@@ -16,6 +18,9 @@ const SHARE_IMAGE_ALT = 'Jev Search homepage with a model selector, example quer
 const WEB_ANALYTICS_BEACON = JSON.stringify({ token: '6d6e9cf679fe45cb8ce7143deb36a0c2' });
 
 export const Route = createRootRoute({
+  // The GitHub star count is loaded once with the page; client navigations reuse it.
+  loader: () => getRepositoryStars(),
+  staleTime: Infinity,
   head: () => ({
     links: [
       { href: appCss, rel: 'stylesheet' },
@@ -102,8 +107,8 @@ function RootDocument({ children }: { readonly children: ReactNode }) {
         {isHome && (
           <div className="absolute right-4 top-4 flex items-center gap-1 sm:right-6">
             <ThemeToggle />
-            <RepositoryLink />
             <SponsorLink />
+            <RepositoryLink />
           </div>
         )}
         <div className="flex flex-1 flex-col">{children}</div>
@@ -112,31 +117,35 @@ function RootDocument({ children }: { readonly children: ReactNode }) {
             and who did what to the query (one credit line, below it). */}
         <footer className="text-xs text-muted-foreground">
           {isHome && (
-            <nav
-              aria-label="Jev community"
-              className="mx-auto flex max-w-5xl items-center justify-center gap-x-6 px-4 pb-2 text-sm"
-            >
-              <a
-                className="inline-flex min-h-11 items-center gap-1.5 text-foreground/80 hover:text-primary-text hover:underline"
-                href="https://github.com/fatwang2/awesome-jev"
-                rel="noreferrer"
-                target="_blank"
-                title="Projects built with Jev"
+            <div className="relative">
+              {/* The home page's "What's new" launcher is portalled here, level with these links. */}
+              <div className="absolute bottom-2 left-3 top-0 flex items-center sm:left-6" id={WHATS_NEW_SLOT_ID} />
+              <nav
+                aria-label="Jev community"
+                className="mx-auto flex max-w-5xl items-center justify-center gap-x-6 px-4 pb-2 text-sm"
               >
-                <SourceIcon className="size-3.5" id="github" />
-                Showcase
-              </a>
-              <a
-                className="inline-flex min-h-11 items-center gap-1.5 text-foreground/80 hover:text-primary-text hover:underline"
-                href="https://www.reddit.com/r/typesafe_jev/"
-                rel="noreferrer"
-                target="_blank"
-                title="r/typesafe_jev on Reddit"
-              >
-                <SourceIcon className="size-3.5" id="reddit" />
-                Community
-              </a>
-            </nav>
+                <a
+                  className="inline-flex min-h-11 items-center gap-1.5 text-foreground/80 hover:text-primary-text hover:underline"
+                  href="https://github.com/fatwang2/awesome-jev"
+                  rel="noreferrer"
+                  target="_blank"
+                  title="Projects built with Jev"
+                >
+                  <SourceIcon className="size-3.5" id="github" />
+                  Showcase
+                </a>
+                <a
+                  className="inline-flex min-h-11 items-center gap-1.5 text-foreground/80 hover:text-primary-text hover:underline"
+                  href="https://www.reddit.com/r/typesafe_jev/"
+                  rel="noreferrer"
+                  target="_blank"
+                  title="r/typesafe_jev on Reddit"
+                >
+                  <SourceIcon className="size-3.5" id="reddit" />
+                  Community
+                </a>
+              </nav>
+            </div>
           )}
           <div className="border-t">
             <p className={cn('mx-auto max-w-5xl px-4 py-4 leading-relaxed', isHome && 'text-center')}>

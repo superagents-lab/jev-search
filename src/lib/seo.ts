@@ -1,4 +1,4 @@
-/** Hosted demo origin. Self-hosters replace this and the copies in `public/robots.txt` and `public/sitemap.xml`. */
+/** Hosted demo origin. Self-hosters replace this and the copy in `public/robots.txt`; the sitemap and changelog feed use it. */
 export const SITE_ORIGIN = 'https://jev.s1.dev';
 export const HOME_CANONICAL = `${SITE_ORIGIN}/`;
 export const SITEMAP_URL = `${SITE_ORIGIN}/sitemap.xml`;

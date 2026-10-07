@@ -2,9 +2,13 @@ import { Link, createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 import { EngineStrip, type EnginePreview } from '@/components/home-demos';
 import { SearchBox } from '@/components/search-box';
+import { WhatsNew } from '@/components/whats-new';
 import { HOME_CANONICAL } from '@/lib/seo';
+import { getLatestChange } from '@/server/changelog';
 
 export const Route = createFileRoute('/')({
+  loader: () => getLatestChange(),
+  staleTime: Infinity,
   head: () => ({
     meta: [{ property: 'og:url', content: HOME_CANONICAL }],
     links: [{ rel: 'canonical', href: HOME_CANONICAL }],
@@ -32,6 +36,7 @@ const EXAMPLES: Example[] = [
 /* design-structure: search-engine home · centered column, headline as the only voice, form as the CTA · footer=Ft2 */
 
 function Home() {
+  const latestChange = Route.useLoaderData();
   const [preview, setPreview] = useState<EnginePreview | null>(null);
   const [model, setModel] = useState('auto');
 
@@ -67,6 +72,7 @@ function Home() {
       <div className="mt-9 sm:mt-10">
         <EngineStrip preview={preview} />
       </div>
+      {latestChange && <WhatsNew change={latestChange} />}
     </main>
   );
 }
