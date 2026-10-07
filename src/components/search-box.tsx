@@ -2,6 +2,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { CheckIcon, ChevronDownIcon, SearchIcon } from 'lucide-react';
 import { Select as SelectPrimitive } from 'radix-ui';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { setConfiguredModels, setSelectedModel } from '@/lib/model-choice';
 import { cn } from '@/lib/utils';
 
 /** Newlines never reach the URL: a pasted or wrapped request is one line of words. */
@@ -45,11 +46,15 @@ export function SearchBox({
       .then((body: unknown) => {
         if (typeof body === 'object' && body !== null && 'models' in body && Array.isArray(body.models)) {
           setModels(body.models as { id: string; label: string }[]);
+          setConfiguredModels(body.models as { id: string; label: string }[]);
         }
       })
       .catch(() => undefined);
     return () => controller.abort();
   }, []);
+
+  // The footer credits whichever model the selector shows.
+  useEffect(() => setSelectedModel(model), [model]);
 
   useLayoutEffect(() => {
     const el = field.current;

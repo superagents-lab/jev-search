@@ -5,6 +5,7 @@ import { RepositoryLink } from '@/components/repository-link';
 import { SourceIcon } from '@/components/source-icon';
 import { SponsorLink } from '@/components/sponsor-link';
 import { THEME_SURFACE, ThemeToggle, themeScript } from '@/components/theme-toggle';
+import { modelCredit, useModelChoice } from '@/lib/model-choice';
 import { SHARE_IMAGE } from '@/lib/seo';
 import { cn } from '@/lib/utils';
 import appCss from '../styles.css?url';
@@ -69,6 +70,24 @@ function NotFound() {
   );
 }
 
+/** Credits the model chosen in the search box; before it mounts, the search URL's `m` decides. */
+function JudgeCredit() {
+  const urlModel = useRouterState({
+    select: (state) => {
+      const m = (state.location.search as { m?: unknown }).m;
+      return typeof m === 'string' ? m : undefined;
+    },
+  });
+  const { selected, models } = useModelChoice();
+  const credit = modelCredit(selected ?? urlModel ?? 'auto', models);
+  if (!credit.href) return <span className="text-foreground/80">{credit.label}</span>;
+  return (
+    <a className="text-foreground/80 hover:underline" href={credit.href} rel="noreferrer" target="_blank">
+      {credit.label}
+    </a>
+  );
+}
+
 function RootDocument({ children }: { readonly children: ReactNode }) {
   const isHome = useRouterState({ select: (state) => state.location.pathname === '/' });
 
@@ -123,9 +142,7 @@ function RootDocument({ children }: { readonly children: ReactNode }) {
             <p className={cn('mx-auto max-w-5xl px-4 py-4 leading-relaxed', isHome && 'text-center')}>
               <span className="block sm:inline">
                 Judgment by{' '}
-                <a className="text-foreground/80 hover:underline" href="https://typesafe.ai" rel="noreferrer" target="_blank">
-                  Jev
-                </a>
+                <JudgeCredit />
                 {' · '}Search by{' '}
                 <a className="text-foreground/80 hover:underline" href="https://www.search1api.com" rel="noreferrer" target="_blank">
                   Search1API
