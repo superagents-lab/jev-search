@@ -27,10 +27,6 @@ function stubFetch(results?: Record<string, unknown>[]) {
         for (const [id, q] of Object.entries(questions)) {
           if (id === 'window') {
             answers[id] = { type: 'choice', choice: '7d', probabilities: { '7d': 0.8 }, confidence: 0.8 };
-          } else if (id === 'entity') {
-            answers[id] = { type: 'choice', choice: 'c0', probabilities: { c0: 0.9 }, confidence: 0.9 };
-          } else if (id === 'query') {
-            answers[id] = { type: 'choice', choice: 'c1', probabilities: { c0: 0.2, c1: 0.8 }, confidence: 0.8 };
           } else if (id.startsWith('source_')) {
             answers[id] = { type: 'noul', noul: id === 'source_reddit' ? 0.9 : 0.1 };
           } else if (q.type === 'noul') {
@@ -62,6 +58,20 @@ function stubFetch(results?: Record<string, unknown>[]) {
     })
   );
 }
+
+/** Fake Workers AI binding answering the Clairic query field. */
+function clairic(reply: (inputs: { state: string; fields: Record<string, unknown> }) => Promise<unknown>) {
+  const run = vi.fn(async (model: string, inputs: unknown) => {
+    expect(model).toBe('@cf/cloudflare/clairic');
+    return reply(inputs as { state: string; fields: Record<string, unknown> });
+  });
+  return { ai: { run }, run };
+}
+
+const extracted = (value: string | null) => async () => ({
+  answers: { query: { type: 'text', value, p_null: value ? 0.01 : 0.99, confidence: 0.9 } },
+  usage: { input_tokens: 40, output_tokens: 0 },
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -118,16 +128,24 @@ describe('runSearch', () => {
     expect(calls.filter((c) => c.url.endsWith('/search'))).toHaveLength(1);
   });
 
-  it('infers window and sources, picks the stripped query, and scores results', async () => {
+  it('infers window and sources, sends the extracted query, and scores results', async () => {
     stubFetch();
+    const { ai, run } = clairic(extracted('Bun 1.3'));
     const out = await runSearch(
-      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] }, now: () => new Date('2026-09-17T00:00:00Z') },
+      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] }, ai, now: () => new Date('2026-09-17T00:00:00Z') },
       { request: 'what are people saying about Bun 1.3 this week' }
     );
 
     expect(out.window).toBe('7d');
     expect(out.sources).toEqual(['reddit']);
     expect(out.query).toBe('Bun 1.3');
+    expect(out.queryExtracted).toBe(true);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]![1]).toMatchObject({ state: 'what are people saying about Bun 1.3 this week' });
+    // Jev answers window and sources only; the query comes from Clairic.
+    const intentCall = calls.find((c) => c.url.endsWith('/v1/systemone') && 'window' in (c.body.questions as object))!;
+    expect(Object.keys(intentCall.body.questions as object).filter((k) => !k.startsWith('source_'))).toEqual(['window']);
+    expect(intentCall.body.state).not.toHaveProperty('candidates');
 
     const searchCalls = calls.filter((c) => c.url.endsWith('/search') && c.body.query === 'Bun 1.3' && c.body.time_range === 'week');
     expect(searchCalls.map((c) => c.body.search_service).sort()).toEqual(['google', 'reddit']);
@@ -145,7 +163,41 @@ describe('runSearch', () => {
     expect(out.items[0]!.engines.sort()).toEqual(['google', 'reddit']);
     expect(out.items[1]).toMatchObject({ relevance: 0.05, ageHours: 24, engines: ['google'] });
     expect(out.lanes.find((l) => l.engine === 'reddit')).toMatchObject({ stale: 1 });
-    expect(out.tokens).toBe(300);
+    expect(out.tokens).toBe(340);
+  });
+
+  it('sends the request as typed when extraction fails, finds nothing, is slow or has no binding', async () => {
+    const request = 'what are people saying about Bun 1.3 this week';
+    const deps = { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] }, now: () => new Date('2026-09-17T00:00:00Z') };
+    const cases = [
+      undefined,
+      clairic(async () => { throw new Error('AiError: 3040: Capacity temporarily exceeded'); }).ai,
+      clairic(extracted(null)).ai,
+      clairic(extracted('   ')).ai,
+      clairic(() => new Promise(() => undefined)).ai,
+    ];
+    for (const ai of cases) {
+      stubFetch();
+      const out = await runSearch({ ...deps, ai }, { request, sources: ['google'], window: 'any' });
+      expect(out.query).toBe(request);
+      expect(out.queryExtracted).toBe(false);
+      expect(calls.filter((c) => c.url.endsWith('/search')).map((c) => c.body.query)).toEqual([request]);
+      vi.unstubAllGlobals();
+      calls.length = 0;
+    }
+  });
+
+  it('reads the REST-shaped Clairic response and sends one query to every engine, IMDb included', async () => {
+    stubFetch();
+    const { ai } = clairic(async () => ({ result: (await extracted('Oppenheimer cast')()) }));
+    const out = await runSearch(
+      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] }, ai },
+      { request: 'who is in the cast of Oppenheimer', window: 'any', sources: ['google', 'imdb', 'reddit'] }
+    );
+    expect(out.query).toBe('Oppenheimer cast');
+    const queries = calls.filter((c) => c.url.endsWith('/search')).map((c) => c.body.query);
+    expect(queries.length).toBe(4);
+    expect(new Set(queries)).toEqual(new Set(['Oppenheimer cast']));
   });
 
   it('respects explicit window and sources', async () => {
@@ -156,9 +208,9 @@ describe('runSearch', () => {
     );
     expect(out.window).toBe('24h');
     expect(out.sources).toEqual(['google', 'duckduckgo', 'github']);
-    // 4 lanes + 1 speculative google call (dropped: the window is 24h).
+    // One call per lane: Google, DuckDuckGo, and GitHub's site search and native engine.
     const searches = calls.filter((c) => c.url.endsWith('/search'));
-    expect(searches).toHaveLength(5);
+    expect(searches).toHaveLength(4);
     const web = searches.filter((c) => ['google', 'duckduckgo'].includes(String(c.body.search_service)) && (c.body.include_sites as string[]).length === 0 && 'time_range' in c.body);
     const gh = searches.filter((c) => (c.body.include_sites as string[])[0] === 'github.com' || c.body.search_service === 'github');
     expect(web.map((c) => c.body.search_service).sort()).toEqual(['duckduckgo', 'google']);
@@ -202,7 +254,6 @@ describe('runSearch', () => {
     );
     const searches = calls.filter((c) => c.url.endsWith('/search'));
     expect(searches.every((c) => !('time_range' in c.body))).toBe(true);
-    // Any time + words unchanged: the speculative google call is the google lane.
     expect(searches.filter((c) => c.body.search_service === 'google')).toHaveLength(1);
     // Any time: the stale row is kept and freshness is flat.
     expect(out.items.every((i) => i.freshness === 0.5)).toBe(true);
@@ -214,7 +265,7 @@ describe('runSearch', () => {
     );
     const again = calls.filter((c) => c.url.endsWith('/search'));
     expect(again.filter((c) => c.body.search_service === 'imdb').every((c) => !('time_range' in c.body))).toBe(true);
-    // The google lane carries the window; the speculative call (no window) is dropped.
+    // The google lane carries the window.
     expect(again.filter((c) => c.body.search_service === 'google' && 'time_range' in c.body).map((c) => c.body.time_range)).toEqual(['week']);
   });
 

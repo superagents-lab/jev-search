@@ -12,15 +12,15 @@ Built by Search1API. This is an independent project, not an official TypeSafe pr
 
 ## How it works
 
-1. **Understand.** The configured decision model answers typed questions about your request. The application uses those judgments to choose a query, sources and a time range. You can override the source and time chips.
+1. **Understand.** The configured decision model answers typed questions about your request to choose sources and a time range. In parallel, Cloudflare's [Clairic](https://developers.cloudflare.com/workers-ai/models/clairic/) extraction model copies the search query out of your own words (the subject and what you want to know about it, without time, site or conversational phrasing); every engine receives that query, and the request is sent as typed if extraction fails. You can override the source and time chips.
 2. **Search.** Google, DuckDuckGo and Yandex search the open web. Hacker News, Reddit and GitHub each combine a Google site-restricted search with their dedicated engine (Hacker News uses the news endpoint). X, arXiv, YouTube, Wikipedia, IMDb and WeChat use vertical engines. Calls run concurrently; one failed engine does not discard another engine's results.
 3. **Rank.** The decision model scores each result for relevance. Results are merged by URL, ordered by relevance, engine agreement and original rank, and streamed as each lane finishes. Lower-scoring results are grouped separately. A failed source shows a warning rather than a zero-result count.
 
 Try “Rust async runtimes on Hacker News this month”, “What do Reddit users think of the Framework laptop?”, or “New papers on speculative decoding”. These are plain-language requests, not hardcoded filters; the last one names no source or time and lets the decision model choose. Model choices and provider coverage can vary.
 
-Each request is sent to the configured decision provider for interpretation, while Search1API receives the selected engine query. The application does not record search queries or result clicks in its own analytics; cache and request-log retention are described below.
+Each request is sent to the configured decision provider and to Clairic on Cloudflare Workers AI for interpretation, while Search1API receives the extracted engine query. The application does not record search queries or result clicks in its own analytics; cache and request-log retention are described below.
 
-The application streams newline-delimited JSON from `POST /api/ask`: `intent` (including `judge`, the decision provider that interpreted the request), `found` (progress counts), `lane` (ranked results), and `done`. Each engine has a 15-second deadline within an overall 30-second request deadline. Google may start speculatively while the decision model interprets the question. Successful, non-empty engine responses are cached for 10 minutes to 6 hours, depending on the time window.
+The application streams newline-delimited JSON from `POST /api/ask`: `intent` (including `judge`, the decision provider that interpreted the request), `found` (progress counts), `lane` (ranked results), and `done`. Each engine has a 15-second deadline within an overall 30-second request deadline. Successful, non-empty engine responses are cached for 10 minutes to 6 hours, depending on the time window.
 
 When more than one model is configured, the search box offers Auto and each distinct model. The list comes from `GET /api/models`, which exposes model names but no provider credentials. The chosen model is stored in the search URL and sent as `m` to `POST /api/ask`. Auto uses the full configured provider chain. An explicit model uses only providers serving that model, in their configured fallback order; it never silently switches to a different model. The progress details show which provider interpreted the request. Ranking calls may use another provider for the same model if a fallback is needed.
 
@@ -157,7 +157,7 @@ Cloudflare installs dependencies from `pnpm-lock.yaml`. The build creates the Wo
 
 ## Data and limitations
 
-- Search requests go to Search1API and to the decision provider that answers them: TypeSafe directly, TypeSafe's Jev through Cloudflare Workers AI or Vercel AI Gateway, Cloudflare's Clef models through Workers AI, or OpenAI's GPT-6 Luna through the OpenAI API. The decision provider also receives result titles and snippets for relevance scoring. Search1API queries the selected engines.
+- Search requests go to Search1API, to Cloudflare Workers AI for Clairic query extraction (the `AI` binding; without it the request is sent to engines as typed), and to the decision provider that answers them: TypeSafe directly, TypeSafe's Jev through Cloudflare Workers AI or Vercel AI Gateway, Cloudflare's Clef models through Workers AI, or OpenAI's GPT-6 Luna through the OpenAI API. The decision provider also receives result titles and snippets for relevance scoring. Search1API queries the selected engines.
 - `CACHE` stores the normalized engine query in each Cloudflare KV key and the returned result snippets for the window-based TTL (10 minutes to six hours). Removing `CACHE` disables this cache.
 - The application does not record search text, inferred queries or result clicks in its own analytics.
 - The hosted demo loads a [Cloudflare Web Analytics](https://developers.cloudflare.com/web-analytics/) beacon for page views, visits, referrers, country, browser and page-load metrics. It does not use cookies and does not record URL query strings, so search terms in `/search?q=` are not stored there. Self-hosters can remove the snippet in `src/routes/__root.tsx`.
@@ -173,7 +173,7 @@ Cloudflare installs dependencies from `pnpm-lock.yaml`. The build creates the Wo
 | Path | Responsibility |
 | --- | --- |
 | `src/lib/sources.ts` | Sources, engine mappings and time windows |
-| `src/lib/candidates.ts` | Search-query candidates |
+| `src/lib/clairic.ts` | Search query extraction with Clairic |
 | `src/lib/typesafe.ts` | Typed intent and relevance judgments |
 | `src/lib/judge-config.ts` | Decision provider chain built from environment variables and bindings |
 | `src/lib/search1api.ts` | Search provider client and engine deadlines |

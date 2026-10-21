@@ -27,8 +27,6 @@ export interface Lane {
   site?: string;
   /** False for engines that reject or ignore `time_range` (wikipedia, imdb, wechat). */
   timeFilter?: boolean;
-  /** True for catalogue engines that want a name or title, not a sentence (imdb). */
-  entityQuery?: boolean;
 }
 
 export interface Source {
@@ -155,7 +153,7 @@ export const SOURCES: readonly Source[] = [
   {
     id: 'imdb',
     label: 'IMDb',
-    lanes: [{ service: 'imdb', timeFilter: false, entityQuery: true }],
+    lanes: [{ service: 'imdb', timeFilter: false }],
     description: 'Movies, TV shows, actors and directors on IMDb',
     ask: {
       question: 'Is the user asking about a film, TV series, actor, director or other screen credit?',

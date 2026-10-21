@@ -17,12 +17,11 @@ function renderGoogle(error?: string) {
     },
     intent: {
       type: 'intent', request: 'TypeSafe Jev news in the past 24 hours',
-      query: 'TypeSafe Jev', entityQuery: 'TypeSafe Jev', candidates: ['TypeSafe Jev'],
+      query: 'TypeSafe Jev', queryExtracted: true,
       window: '24h', sources: ['google'], intentMs: 100, judge: 'typesafe',
       inferred: {
         window: { choice: '24h', confidence: 1 },
         sources: Object.fromEntries(SOURCE_IDS.map((id) => [id, id === 'google' ? 1 : 0])) as Record<SourceId, number>,
-        query: { index: 0, confidence: 1 }, entity: { index: 0, confidence: 1 },
       },
     },
   };

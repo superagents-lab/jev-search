@@ -404,10 +404,6 @@ export interface Intent {
   window: { choice: WindowId; confidence: number };
   /** Probability that the user specifically wants each source. */
   sources: Record<SourceId, number>;
-  /** Index into the candidates array the caller passed in. */
-  query: { index: number; confidence: number };
-  /** Candidate that is just the name or title being asked about, for catalogue engines. */
-  entity: { index: number; confidence: number };
   usage: SystemOneResponse['usage'];
   /** Which provider answered. */
   provider: ProviderId;
@@ -415,7 +411,7 @@ export interface Intent {
 
 export async function inferIntent(
   config: JudgeConfig,
-  input: { request: string; candidates: string[]; now: Date },
+  input: { request: string; now: Date },
   signal?: AbortSignal
 ): Promise<Intent> {
   const questions: Record<string, Question> = {};
@@ -437,29 +433,9 @@ export async function inferIntent(
     };
   }
 
-  if (input.candidates.length > 1) {
-    const criteria: Record<string, string> = {};
-    input.candidates.forEach((c, i) => {
-      criteria[`c${i}`] = c;
-    });
-    questions.query = {
-      type: 'choice',
-      instructions:
-        'Which candidate in `candidates` is the best keyword query to send to a web search engine so the results match what the user is asking for in `request`? Prefer the candidate that keeps the subject and drops words about time, sources or phrasing that a search engine would treat as keywords.',
-      criteria,
-    };
-    questions.entity = {
-      type: 'choice',
-      instructions:
-        'Which candidate in `candidates` is just the name or title of the thing the user is asking about in `request`, as you would type it into a catalogue such as IMDb or a library index? Prefer the shortest candidate that is still the full proper name.',
-      criteria,
-    };
-  }
-
   const state = {
     request: input.request,
     now: input.now.toISOString().slice(0, 10),
-    candidates: Object.fromEntries(input.candidates.map((c, i) => [`c${i}`, c])),
   };
 
   const res = await systemOne(config, state, questions, signal);
@@ -479,22 +455,7 @@ export async function inferIntent(
     sources[s.id] = a?.type === 'noul' ? a.noul : 0;
   }
 
-  const queryAnswer = res.answers.query;
-  const query =
-    queryAnswer?.type === 'choice'
-      ? {
-          index: Number(queryAnswer.choice.slice(1)) || 0,
-          confidence: queryAnswer.confidence,
-        }
-      : { index: 0, confidence: 1 };
-
-  const entityAnswer = res.answers.entity;
-  const entity =
-    entityAnswer?.type === 'choice'
-      ? { index: Number(entityAnswer.choice.slice(1)) || 0, confidence: entityAnswer.confidence }
-      : query;
-
-  return { window, sources, query, entity, usage: res.usage, provider: res.provider };
+  return { window, sources, usage: res.usage, provider: res.provider };
 }
 
 // ---------------------------------------------------------------------------

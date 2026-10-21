@@ -29,7 +29,8 @@
   //   OPENAI_API_KEY       openai: OpenAI Decisions API (GPT-6 Luna)
   //   GITHUB_TOKEN         optional; authenticates the cached GitHub star-count lookup
   //                        cloudflare, clef and clef-flash need no secret; they use the binding below.
-  // Workers AI binding for cloudflare, clef and clef-flash. Idle unless JEV_PROVIDERS lists one.
+  // Workers AI binding: Clairic query extraction on every search, plus the cloudflare, clef and
+  // clef-flash decision providers when JEV_PROVIDERS lists them.
   "ai": { "binding": "AI", "remote": true },
   "ratelimits": [{
     "name": "SEARCH_RATE_LIMIT",
