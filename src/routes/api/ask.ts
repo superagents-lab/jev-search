@@ -66,6 +66,7 @@ export const Route = createFileRoute('/api/ask')({
         const deps = {
           search1api: { apiKey: env.SEARCH1API_API_KEY, baseUrl: env.SEARCH1API_BASE_URL },
           judge,
+          ai: env.AI,
           cache: env.CACHE,
         };
         const signal = AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]);

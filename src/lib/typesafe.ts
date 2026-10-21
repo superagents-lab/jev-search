@@ -34,17 +34,17 @@ export interface JudgeConfig {
   providers: ProviderConfig[];
 }
 
-type NoulQuestion = {
+export type NoulQuestion = {
   type: 'noul';
   instructions: string;
   criteria?: { true?: string; false?: string };
 };
-type ChoiceQuestion = {
+export type ChoiceQuestion = {
   type: 'choice';
   instructions: string;
   criteria: Record<string, string | null>;
 };
-type Question = NoulQuestion | ChoiceQuestion;
+export type Question = NoulQuestion | ChoiceQuestion;
 
 type NoulAnswer = { type: 'noul'; noul: number };
 type ChoiceAnswer = {
@@ -168,7 +168,11 @@ async function callCloudflare(
     console.warn(`[jev] ${config.provider} binding failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
     throw new TypeSafeError(status, failureMessage(status, config.provider), config.provider);
   }
-  return normalise(config.provider, model, body as Partial<NativeResponse>);
+  // typesafe/jev answers through the binding as `{ state: 'Completed', result: { answers, ... } }`
+  // (seen 2026-10-22); Clef answers unwrapped. Read either.
+  const wrapped = body as { answers?: unknown; result?: Partial<NativeResponse> } | null | undefined;
+  const native = wrapped && !wrapped.answers && wrapped.result ? wrapped.result : (body as Partial<NativeResponse>);
+  return normalise(config.provider, model, native);
 }
 
 /** The binding reports upstream failures as thrown errors; recover an HTTP-like status from the message. */

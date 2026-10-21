@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildCandidates } from '@/lib/candidates';
 import { runSearch } from '@/lib/pipeline';
 import { memoryCache } from '@/lib/cache';
 import { compareItems } from '@/lib/rank';
@@ -13,6 +14,15 @@ function jsonResponse(data: unknown) {
   });
 }
 
+type SpanState = { fullRequest: string; appliedEngines: string[]; candidateQueries: Record<string, string> };
+/** Picks a span by its text; undefined gives no answer (the engine falls back). */
+type SpanPick = (state: SpanState, instructions: string) => string | undefined;
+let spanPick: SpanPick = () => undefined;
+let failSpans = false;
+
+const choiceFor = (state: SpanState, value: string | undefined) =>
+  Object.entries(state.candidateQueries).find(([, v]) => v === value)?.[0];
+
 function stubFetch(results?: Record<string, unknown>[]) {
   vi.stubGlobal(
     'fetch',
@@ -22,8 +32,15 @@ function stubFetch(results?: Record<string, unknown>[]) {
       calls.push({ url, body });
 
       if (url.endsWith('/v1/systemone')) {
-        const questions = body.questions as Record<string, { type: string }>;
+        const questions = body.questions as Record<string, { type: string; instructions: string }>;
         const answers: Record<string, unknown> = {};
+        if (questions.span) {
+          if (failSpans) return new Response('busy', { status: 503 });
+          const state = body.state as SpanState;
+          const choice = choiceFor(state, spanPick(state, questions.span.instructions));
+          if (choice) answers.span = { type: 'choice', choice, probabilities: { [choice]: 1 }, confidence: 1 };
+          return jsonResponse({ model: 'jev-1.13.0', answers, usage: { input_tokens: 100, output_tokens: 1 } });
+        }
         for (const [id, q] of Object.entries(questions)) {
           if (id === 'window') {
             answers[id] = { type: 'choice', choice: '7d', probabilities: { '7d': 0.8 }, confidence: 0.8 };
@@ -63,27 +80,58 @@ function stubFetch(results?: Record<string, unknown>[]) {
   );
 }
 
+/** Fake Workers AI binding answering Clairic's keyword-engine fields. */
+function clairic(values: Record<string, string>, fail = false) {
+  const run = vi.fn(async (model: string, _inputs: unknown) => {
+    expect(model).toBe('@cf/cloudflare/clairic');
+    if (fail) throw new Error('InferenceUpstreamError: 503 Service Unavailable');
+    return {
+      answers: Object.fromEntries(Object.entries(values).map(([id, value]) => [id, { type: 'text', value }])),
+      usage: { input_tokens: 40, output_tokens: 0 },
+    };
+  });
+  return { ai: { run }, run };
+}
+
+const judge = { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] };
+const searchesOf = (service: string) =>
+  calls.filter((c) => (c.url.endsWith('/search') || c.url.endsWith('/news')) && c.body.search_service === service);
+const spanCalls = () =>
+  calls
+    .filter((c) => c.url.endsWith('/v1/systemone') && 'span' in (c.body.questions as object))
+    .map((c) => ({
+      state: c.body.state as SpanState,
+      instructions: (c.body.questions as { span: { instructions: string } }).span.instructions,
+    }));
+
+beforeEach(() => {
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   calls.length = 0;
+  spanPick = () => undefined;
+  failSpans = false;
 });
 
 describe('runSearch', () => {
   it('searches and scores each lane once even when a caller repeats sources', async () => {
     stubFetch([{ title: 'Bun discussion', link: 'https://reddit.com/r/bun/1', snippet: 'Bun runtime' }]);
     const out = await runSearch(
-      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] }, now: () => new Date('2026-09-18T18:30:00Z') },
+      { search1api: { apiKey: 's1' }, judge, now: () => new Date('2026-09-18T18:30:00Z') },
       { request: 'Bun', sources: ['reddit', 'reddit', 'reddit'], window: 'any' }
     );
 
-    const searchCalls = calls.filter((c) => c.url.endsWith('/search'));
-    expect(searchCalls.map((c) => c.body.search_service).sort()).toEqual(['google', 'reddit']);
-    // One intent judgment, then one relevance judgment per lane.
-    expect(calls.filter((c) => c.url.endsWith('/v1/systemone'))).toHaveLength(3);
+    expect(searchesOf('reddit')).toHaveLength(1);
+    expect(calls.filter((c) => c.url.endsWith('/search'))).toHaveLength(1);
+    // One intent judgment and one relevance judgment; a one-word request needs no span choice.
+    expect(calls.filter((c) => c.url.endsWith('/v1/systemone'))).toHaveLength(2);
     expect(out.sources).toEqual(['reddit']);
-    expect(out.lanes).toHaveLength(2);
+    expect(out.lanes).toHaveLength(1);
     expect(out.items).toHaveLength(1);
-    expect(out.tokens).toBe(300);
+    expect(out.tokens).toBe(200);
   });
 
   it('carries API dates through filtering, scoring and Newest sorting', async () => {
@@ -94,7 +142,7 @@ describe('runSearch', () => {
       { title: 'Unknown', link: 'https://a.com/unknown', snippet: 'plain', published_date: null },
     ]);
     const out = await runSearch(
-      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] }, now: () => new Date('2026-09-18T18:30:00Z') },
+      { search1api: { apiKey: 's1' }, judge, now: () => new Date('2026-09-18T18:30:00Z') },
       { request: 'Bun', sources: ['google'], window: '24h' }
     );
     expect(out.lanes[0]!.stale).toBe(1);
@@ -110,7 +158,7 @@ describe('runSearch', () => {
   it('recomputes age from the cached absolute publication time', async () => {
     stubFetch([{ title: 'Recent', link: 'https://a.com', snippet: '1 hour ago ... text', published_date: '2026-09-18T17:00:00Z' }]);
     let now = new Date('2026-09-18T18:00:00Z');
-    const deps = { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] }, cache: memoryCache(), now: () => now };
+    const deps = { search1api: { apiKey: 's1' }, judge, cache: memoryCache(), now: () => now };
     const input = { request: 'Bun', sources: ['google' as const], window: 'any' as const };
     expect((await runSearch(deps, input)).items[0]!.ageHours).toBe(1);
     now = new Date('2026-09-18T18:30:00Z');
@@ -118,123 +166,178 @@ describe('runSearch', () => {
     expect(calls.filter((c) => c.url.endsWith('/search'))).toHaveLength(1);
   });
 
-  it('infers window and sources, picks the stripped query, and scores results', async () => {
+  it('infers window and sources, sends the Clairic query to Reddit, and scores results', async () => {
     stubFetch();
+    const { ai, run } = clairic({ reddit: 'Bun 1.3', github: 'Bun' });
+    const request = 'what are people saying about Bun 1.3 this week';
     const out = await runSearch(
-      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] }, now: () => new Date('2026-09-17T00:00:00Z') },
-      { request: 'what are people saying about Bun 1.3 this week' }
+      { search1api: { apiKey: 's1' }, judge, ai, now: () => new Date('2026-09-17T00:00:00Z') },
+      { request }
     );
 
     expect(out.window).toBe('7d');
     expect(out.sources).toEqual(['reddit']);
     expect(out.query).toBe('Bun 1.3');
+    expect(out.queries).toEqual({ reddit: 'Bun 1.3' });
+    expect(out.queryFrom).toEqual({ reddit: 'clairic' });
+    // One Clairic call for the three keyword engines, before routing is known.
+    expect(run).toHaveBeenCalledTimes(1);
+    const inputs = run.mock.calls[0]![1] as { state: string; fields: Record<string, unknown> };
+    expect(inputs.state).toBe(request);
+    expect(Object.keys(inputs.fields).sort()).toEqual(['github', 'hackernews', 'reddit']);
+    // The intent judgment also picks a fallback query from the candidates; Reddit needs no span choice.
+    const intentCall = calls.find((c) => c.url.endsWith('/v1/systemone') && 'window' in (c.body.questions as object))!;
+    expect(Object.keys(intentCall.body.questions as object).filter((k) => !k.startsWith('source_'))).toEqual(['window', 'query', 'entity']);
+    expect(intentCall.body.state).toMatchObject({ candidates: { c0: request, c1: 'Bun 1.3' } });
+    expect(spanCalls()).toHaveLength(0);
 
-    const searchCalls = calls.filter((c) => c.url.endsWith('/search') && c.body.query === 'Bun 1.3' && c.body.time_range === 'week');
-    expect(searchCalls.map((c) => c.body.search_service).sort()).toEqual(['google', 'reddit']);
-    expect(searchCalls.find((c) => c.body.search_service === 'reddit')!.body).toMatchObject({ include_sites: [], exclude_sites: [] });
-    expect(searchCalls[0]!.body).toMatchObject({
-      query: 'Bun 1.3',
-      time_range: 'week',
-      include_sites: ['reddit.com'],
-    });
-
-    // Lanes folded by URL: the shared URL is one row with both engines; the
-    // stale reddit row (Oct 2025) is outside the window and dropped.
-    expect(out.items).toHaveLength(2);
-    expect(out.items[0]).toMatchObject({ relevance: 0.95, ageHours: 72, snippet: 'runtime' });
-    expect(out.items[0]!.engines.sort()).toEqual(['google', 'reddit']);
-    expect(out.items[1]).toMatchObject({ relevance: 0.05, ageHours: 24, engines: ['google'] });
-    expect(out.lanes.find((l) => l.engine === 'reddit')).toMatchObject({ stale: 1 });
-    expect(out.tokens).toBe(300);
+    const reddit = searchesOf('reddit');
+    expect(reddit).toHaveLength(1);
+    expect(reddit[0]!.body).toEqual({ query: 'Bun 1.3', search_service: 'reddit', time_range: 'week', max_results: 8 });
+    // The stale reddit row (Oct 2025) is outside the window and dropped.
+    expect(out.items).toHaveLength(1);
+    expect(out.items[0]).toMatchObject({ relevance: 0.95, ageHours: 72, snippet: 'runtime', engines: ['reddit'] });
+    expect(out.lanes[0]).toMatchObject({ stale: 1 });
+    expect(out.tokens).toBe(240);
   });
 
-  it('respects explicit window and sources', async () => {
+  it('gives each engine its own query: Clairic, then a Jev span, then the intent pick', async () => {
+    stubFetch();
+    const request = 'On GitHub find FastAPI JWT authentication examples; on Reddit find FastAPI production performance experiences.';
+    spanPick = (_state, instructions) =>
+      instructions.includes('Reddit-specific')
+        ? 'FastAPI production performance experiences'
+        : instructions.includes('general web pages')
+          ? 'FastAPI JWT authentication examples'
+          : undefined;
+    const out = await runSearch(
+      { search1api: { apiKey: 's1' }, judge, ai: clairic({ github: 'FastAPI JWT authentication examples' }).ai },
+      { request, window: 'any', sources: ['google', 'github', 'reddit', 'youtube'] }
+    );
+    expect(out.queries).toEqual({
+      google: 'FastAPI JWT authentication examples',
+      github: 'FastAPI JWT authentication examples',
+      reddit: 'FastAPI production performance experiences',
+      youtube: buildCandidates(request)[1],
+    });
+    expect(out.queryFrom).toEqual({ google: 'jev', github: 'clairic', reddit: 'jev', youtube: 'intent' });
+    expect(out.query).toBe(out.queries.google);
+    expect(searchesOf('reddit')[0]!.body.query).toBe('FastAPI production performance experiences');
+    expect(searchesOf('youtube')[0]!.body.query).toBe(buildCandidates(request)[1]);
+
+    const spans = spanCalls();
+    // Web and YouTube first; Reddit only after Clairic left it empty. GitHub never asks Jev.
+    expect(spans).toHaveLength(3);
+    expect(spans.some((s) => s.instructions.includes('GitHub-specific'))).toBe(false);
+    expect(spans[2]!.instructions).toContain('Reddit-specific');
+    for (const { state } of spans) {
+      // Every routed engine counts as applied, and spans naming one as the place to search are gone.
+      expect(state.appliedEngines).toEqual(['google', 'github', 'reddit', 'youtube']);
+      expect(state.fullRequest).toBe(request);
+      const candidates = Object.values(state.candidateQueries);
+      expect(candidates[0]).toBe(request);
+      expect(candidates.slice(1).some((c) => /GitHub|Reddit/.test(c))).toBe(false);
+    }
+  });
+
+  it('uses Jev spans for keyword engines when Clairic fails or there is no binding', async () => {
+    for (const ai of [clairic({}, true).ai, undefined]) {
+      stubFetch();
+      spanPick = (_state, instructions) => (instructions.includes('Hacker News threads') ? 'Zig async I/O redesign' : undefined);
+      const out = await runSearch(
+        { search1api: { apiKey: 's1' }, judge, ai },
+        { request: 'what does HN think of Zig async I/O redesign', window: 'any', sources: ['hackernews'] }
+      );
+      expect(out.queries).toEqual({ hackernews: 'Zig async I/O redesign' });
+      expect(out.queryFrom).toEqual({ hackernews: 'jev' });
+      expect(searchesOf('hackernews')[0]!.url).toMatch(/\/news$/);
+      vi.unstubAllGlobals();
+      calls.length = 0;
+    }
+  });
+
+  it("falls back to the intent's query pick when span selection fails, then to the request", async () => {
+    stubFetch();
+    failSpans = true;
+    const request = 'who directed the movie Past Lives';
+    const picked = buildCandidates(request)[1]!;
+    const out = await runSearch({ search1api: { apiKey: 's1' }, judge }, { request, window: 'any', sources: ['google', 'imdb'] });
+    expect(picked).not.toBe(request);
+    expect(out.queries).toEqual({ google: picked, imdb: picked });
+    expect(out.queryFrom).toEqual({ google: 'intent', imdb: 'intent' });
+    expect(searchesOf('imdb')[0]!.body.query).toBe(picked);
+    expect(out.items.length).toBeGreaterThan(0);
+
+    vi.unstubAllGlobals();
+    calls.length = 0;
+    stubFetch();
+    // A two-word request has one candidate, so the intent asks no query question.
+    const typed = await runSearch({ search1api: { apiKey: 's1' }, judge }, { request: 'Bun 1.3', window: 'any', sources: ['google'] });
+    expect(typed.queries).toEqual({ google: 'Bun 1.3' });
+    expect(typed.queryFrom).toEqual({ google: 'request' });
+  });
+
+  it('respects explicit window and sources, one engine per source', async () => {
     stubFetch();
     const out = await runSearch(
-      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] } },
+      { search1api: { apiKey: 's1' }, judge },
       { request: 'Bun 1.3', window: '24h', sources: ['google', 'duckduckgo', 'github'] }
     );
     expect(out.window).toBe('24h');
     expect(out.sources).toEqual(['google', 'duckduckgo', 'github']);
-    // 4 lanes + 1 speculative google call (dropped: the window is 24h).
     const searches = calls.filter((c) => c.url.endsWith('/search'));
-    expect(searches).toHaveLength(5);
-    const web = searches.filter((c) => ['google', 'duckduckgo'].includes(String(c.body.search_service)) && (c.body.include_sites as string[]).length === 0 && 'time_range' in c.body);
-    const gh = searches.filter((c) => (c.body.include_sites as string[])[0] === 'github.com' || c.body.search_service === 'github');
-    expect(web.map((c) => c.body.search_service).sort()).toEqual(['duckduckgo', 'google']);
-    expect(web[0]!.body).toMatchObject({ time_range: 'day', exclude_sites: [] });
-    expect(gh.map((c) => c.body.search_service).sort()).toEqual(['github', 'google']);
+    expect(searches.map((c) => c.body.search_service).sort()).toEqual(['duckduckgo', 'github', 'google']);
+    for (const c of searches) {
+      expect(c.body).toMatchObject({ time_range: 'day' });
+      expect(c.body).not.toHaveProperty('include_sites');
+    }
   });
 
-  it('searches Hacker News through Google site and the native news endpoint only', async () => {
+  it('searches Hacker News through its native news endpoint only', async () => {
     stubFetch([{ title: 'SQLite discussion', link: 'https://news.ycombinator.com/item?id=1', snippet: 'SQLite' }]);
-    const out = await runSearch(
-      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] } },
-      { request: 'SQLite', sources: ['hackernews'], window: '30d' }
-    );
+    const out = await runSearch({ search1api: { apiKey: 's1' }, judge }, { request: 'SQLite', sources: ['hackernews'], window: '30d' });
     const searches = calls.filter((c) => c.url.endsWith('/search') || c.url.endsWith('/news'));
-    expect(searches).toHaveLength(2);
-    expect(searches.find((c) => c.url.endsWith('/news'))!.body).toMatchObject({
-      search_service: 'hackernews', time_range: 'month', include_sites: [], exclude_sites: [],
-    });
-    expect(searches.find((c) => c.url.endsWith('/search'))!.body).toMatchObject({
-      search_service: 'google', include_sites: ['news.ycombinator.com'],
-    });
+    expect(searches).toHaveLength(1);
+    expect(searches[0]!.url).toMatch(/\/news$/);
+    expect(searches[0]!.body).toEqual({ query: 'SQLite', search_service: 'hackernews', time_range: 'month', max_results: 8 });
     expect(out.sources).toEqual(['hackernews']);
-    expect(out.items[0]!.engines.sort()).toEqual(['google', 'hackernews']);
+    expect(out.items[0]!.engines).toEqual(['hackernews']);
   });
 
   it('uses the vertical engine for vertical sources', async () => {
     stubFetch();
-    await runSearch(
-      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] } },
-      { request: 'LLM agents', sources: ['arxiv'] }
-    );
-    const searches = calls.filter((c) => c.url.endsWith('/search') && c.body.search_service === 'arxiv');
-    expect(searches[0]!.body).toMatchObject({ search_service: 'arxiv', include_sites: [], exclude_sites: [] });
+    await runSearch({ search1api: { apiKey: 's1' }, judge }, { request: 'LLM agents', sources: ['arxiv'] });
+    expect(searchesOf('arxiv')[0]!.body).toMatchObject({ search_service: 'arxiv' });
   });
 
   it('sends no time filter for Any time, and never to engines that reject it', async () => {
     stubFetch();
-    const out = await runSearch(
-      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] } },
-      { request: 'Oppenheimer', window: 'any', sources: ['google', 'imdb'] }
-    );
+    const out = await runSearch({ search1api: { apiKey: 's1' }, judge }, { request: 'Oppenheimer', window: 'any', sources: ['google', 'imdb'] });
     const searches = calls.filter((c) => c.url.endsWith('/search'));
     expect(searches.every((c) => !('time_range' in c.body))).toBe(true);
-    // Any time + words unchanged: the speculative google call is the google lane.
-    expect(searches.filter((c) => c.body.search_service === 'google')).toHaveLength(1);
+    expect(searchesOf('google')).toHaveLength(1);
     // Any time: the stale row is kept and freshness is flat.
     expect(out.items.every((i) => i.freshness === 0.5)).toBe(true);
 
     calls.length = 0;
-    await runSearch(
-      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] } },
-      { request: 'Oppenheimer', window: '7d', sources: ['google', 'imdb'] }
-    );
-    const again = calls.filter((c) => c.url.endsWith('/search'));
-    expect(again.filter((c) => c.body.search_service === 'imdb').every((c) => !('time_range' in c.body))).toBe(true);
-    // The google lane carries the window; the speculative call (no window) is dropped.
-    expect(again.filter((c) => c.body.search_service === 'google' && 'time_range' in c.body).map((c) => c.body.time_range)).toEqual(['week']);
+    await runSearch({ search1api: { apiKey: 's1' }, judge }, { request: 'Oppenheimer', window: '7d', sources: ['google', 'imdb'] });
+    expect(searchesOf('imdb').every((c) => !('time_range' in c.body))).toBe(true);
+    expect(searchesOf('google').map((c) => c.body.time_range)).toEqual(['week']);
   });
 
   it('keeps going when one source fails', async () => {
     stubFetch();
     const original = globalThis.fetch as ReturnType<typeof vi.fn>;
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body ?? '{}')) as { include_sites?: string[]; search_service?: string };
-      if (String(input).endsWith('/search') && (body.include_sites?.[0] === 'github.com' || body.search_service === 'github')) {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { search_service?: string };
+      if (String(input).endsWith('/search') && body.search_service === 'github') {
         return new Response('upstream broke', { status: 502 });
       }
       return original(input, init);
     }));
-    const out = await runSearch(
-      { search1api: { apiKey: 's1' }, judge: { providers: [{ provider: 'typesafe' as const, apiKey: 'ts' }] } },
-      { request: 'Bun 1.3', sources: ['reddit', 'github'] }
-    );
-    expect(out.errors.map((e) => e.engine).sort()).toEqual(['github', 'google']);
-    expect(out.errors.every((e) => e.source === 'github' && e.message === 'upstream broke')).toBe(true);
+    const out = await runSearch({ search1api: { apiKey: 's1' }, judge }, { request: 'Bun 1.3', sources: ['reddit', 'github'] });
+    expect(out.errors).toEqual([{ source: 'github', engine: 'github', message: 'upstream broke' }]);
     expect(out.totalMs).toBeGreaterThanOrEqual(0);
-    expect(out.items.map((i) => i.source)).toEqual(['reddit', 'reddit']);
+    expect(out.items.map((i) => i.source)).toEqual(['reddit']);
   });
 });

@@ -1,9 +1,11 @@
 import { cachedSearch, type ResultCache } from './cache';
 import { buildCandidates } from './candidates';
+import { extractQueries, isExtracted, type Extracted } from './extract';
 import { freshnessScore, isPublicationStale, resolvePublication, stripAgePrefix } from './freshness';
 import { mergeItems } from './merge';
 import type { RankedItem } from './rank';
 import { search, type RawResult, type Search1ApiConfig, type SearchParams } from './search1api';
+import { selectSpans } from './spans';
 import {
   DEFAULT_SOURCE_IDS,
   DEFAULT_WINDOW,
@@ -14,7 +16,7 @@ import {
   type SourceId,
   type WindowId,
 } from './sources';
-import { inferIntent, rerank, type Intent, type JudgeConfig, type ProviderId } from './typesafe';
+import { inferIntent, rerank, type Intent, type JevBinding, type JudgeConfig, type ProviderId } from './typesafe';
 
 export interface SearchInput {
   request: string;
@@ -30,22 +32,28 @@ export interface LaneError {
   message: string;
 }
 
+/**
+ * Clairic for keyword engines, a Jev span choice for the rest, then the
+ * intent judgment's candidate pick, then the request as typed.
+ */
+export type QueryOrigin = 'clairic' | 'jev' | 'intent' | 'request';
+
 export interface IntentEvent {
   type: 'intent';
   request: string;
-  /** Keyword query actually sent to the engines. */
+  /** Query of the first chosen source, for one-line summaries; see `queries` for each source. */
   query: string;
-  /** Name-or-title query sent to catalogue engines such as IMDb. */
-  entityQuery: string;
-  candidates: string[];
+  /** Query each chosen source's engines receive. */
+  queries: Partial<Record<SourceId, string>>;
+  /** Where each source's query came from; `request` means the words as typed. */
+  queryFrom: Partial<Record<SourceId, QueryOrigin>>;
   window: WindowId;
   sources: SourceId[];
   inferred: {
     window: Intent['window'];
     sources: Intent['sources'];
-    query: Intent['query'];
-    entity: Intent['entity'];
   };
+  /** Time until every chosen source had its query. */
   intentMs: number;
   /** Decision provider that interpreted the request. */
   judge: ProviderId;
@@ -92,6 +100,8 @@ export interface PipelineDeps {
   search1api: Search1ApiConfig;
   /** Decision providers, primary first. */
   judge: JudgeConfig;
+  /** Workers AI binding for Clairic query extraction; absent means keyword engines use Jev spans too. */
+  ai?: JevBinding;
   /** Optional KV-like store; lanes are cached by query, engine and window. */
   cache?: ResultCache;
   now?: () => Date;
@@ -116,17 +126,11 @@ export async function* askStream(
   const runSearch = (params: SearchParams) =>
     cachedSearch(deps.cache, params, () => search(deps.search1api, params, signal));
 
-  // 0. Speculate: Google with the words as typed, fired alongside the judge.
-  //    Reused when the judge keeps those words and wants no time window,
-  //    which is most factual questions; otherwise it is simply dropped.
-  const speculative: SearchParams = { query: candidates[0]!, service: 'google', maxResults: RESULTS_PER_LANE };
-  const speculativePromise = input.sources && !input.sources.includes('google')
-    ? null
-    : runSearch(speculative).catch(() => null);
-
-  // 1. Understand the request.
+  // 1. Understand the request. Jev picks window and sources while Clairic
+  //    extracts the keyword-engine queries; only an abort rejects the latter.
+  const extractPromise: Promise<Extracted> = extractQueries(deps.ai, request, signal);
+  extractPromise.catch(() => undefined);
   const intent = await inferIntent(deps.judge, { request, candidates, now }, signal);
-  const intentMs = Math.round(performance.now() - started);
 
   const window = input.window ?? intent.window.choice ?? DEFAULT_WINDOW;
   let sources: SourceId[];
@@ -137,26 +141,48 @@ export async function* askStream(
     const wanted = SOURCE_IDS.filter((id) => intent.sources[id] >= SOURCE_PROB_THRESHOLD);
     sources = wanted.length > 0 ? wanted : [...DEFAULT_SOURCE_IDS];
   }
-  const query = candidates[intent.query.index] ?? candidates[0]!;
-  const entityQuery = candidates[intent.entity.index] ?? query;
   const win = windowById(window);
   const maxAge = win.hours * WINDOW_TOLERANCE;
-  let tokens = intent.usage.input_tokens;
+
+  // 2. Per-engine spans of the user's own words: Clairic for keyword engines,
+  //    a Jev choice for the rest and for any keyword engine Clairic left out.
+  //    The intent query (or entity query) comes next, the request as typed last.
+  const spanContext = { request, sources, timeRange: win.timeRange };
+  const [jevSpans, extracted] = await Promise.all([
+    selectSpans(deps.judge, spanContext, signal, sources.filter((s) => !(deps.ai && isExtracted(s)))),
+    extractPromise,
+  ]);
+  const missing = deps.ai ? sources.filter((s) => isExtracted(s) && !extracted.queries[s]) : [];
+  const retried = await selectSpans(deps.judge, spanContext, signal, missing);
+  const intentQuery = candidates[intent.query.index];
+  const entityQuery = candidates[intent.entity.index] ?? intentQuery;
+  const queries: Partial<Record<SourceId, string>> = {};
+  const queryFrom: Partial<Record<SourceId, QueryOrigin>> = {};
+  for (const source of sources) {
+    const clairic = isExtracted(source) ? extracted.queries[source] : undefined;
+    const jev = jevSpans.queries[source] ?? retried.queries[source];
+    const picked = sourceById(source).entityQuery ? entityQuery : intentQuery;
+    queries[source] = clairic ?? jev ?? picked ?? request;
+    queryFrom[source] = clairic ? 'clairic' : jev ? 'jev' : picked && picked !== request ? 'intent' : 'request';
+  }
+  const queryFor = (source: SourceId): string => queries[source] ?? request;
+  const intentMs = Math.round(performance.now() - started);
+  let tokens = intent.usage.input_tokens + jevSpans.tokens + retried.tokens + extracted.tokens;
 
   yield {
     type: 'intent',
     request,
-    query,
-    entityQuery,
-    candidates,
+    query: queryFor(sources[0]!),
+    queries,
+    queryFrom,
     window,
     sources,
-    inferred: { window: intent.window, sources: intent.sources, query: intent.query, entity: intent.entity },
+    inferred: { window: intent.window, sources: intent.sources },
     intentMs,
     judge: intent.provider,
   };
 
-  // 2. Every lane searches, filters by age, and gets scored on its own. The
+  // 3. Every lane searches, filters by age, and gets scored on its own. The
   //    'found' event goes out between the two steps so the page can show the
   //    rows before they are ordered.
   const found: FoundEvent[] = [];
@@ -168,22 +194,14 @@ export async function* askStream(
   const runLane = async (source: SourceId, lane: Lane): Promise<LaneEvent> => {
     const t0 = performance.now();
     const params: SearchParams = {
-      query: lane.entityQuery ? entityQuery : query,
+      query: queryFor(source),
       service: lane.service,
       timeRange: lane.timeFilter === false ? undefined : win.timeRange,
       maxResults: RESULTS_PER_LANE,
-      includeSites: lane.site ? [lane.site] : [],
     };
-    const sameAsSpeculative =
-      speculativePromise !== null &&
-      params.service === speculative.service &&
-      params.query === speculative.query &&
-      params.timeRange === undefined &&
-      params.includeSites!.length === 0;
     let raw: RawResult[];
     try {
-      const got = sameAsSpeculative ? await speculativePromise : null;
-      raw = got ? got.results : (await runSearch(params)).results;
+      raw = (await runSearch(params)).results;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -226,7 +244,7 @@ export async function* askStream(
       announce({ type: 'found', source, engine: lane.service, items: items.map((it) => ({ ...it })), searchMs });
     }
 
-    // 3. Judge relevance of this lane's rows against the original request.
+    // 4. Judge relevance of this lane's rows against the original request.
     const t1 = performance.now();
     let error: string | undefined;
     if (items.length > 0) {

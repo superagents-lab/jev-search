@@ -41,7 +41,6 @@ describe('search deadline', () => {
     slowSearch(8_000);
     const result = search({ apiKey: 'test' }, {
       query: 'TypeSafe Jev', service: 'google', timeRange: 'day',
-      excludeSites: ['news.ycombinator.com', 'reddit.com', 'github.com'],
     });
     const check = expect(result).resolves.toEqual([
       { title: 'TypeSafe Jev', link: 'https://typesafe.ai/', snippet: '1 hour ago · Jev' },

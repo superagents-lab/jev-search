@@ -8,8 +8,6 @@ export interface SearchParams {
   /** Search1API `search_service`; defaults to google. */
   service?: string;
   timeRange?: 'day' | 'week' | 'month';
-  includeSites?: string[];
-  excludeSites?: string[];
   maxResults?: number;
 }
 
@@ -45,9 +43,8 @@ export class Search1ApiError extends Error {
 }
 
 /**
- * One POST /search, or /news for Hacker News. Source restriction is done with
- * `include_sites` / `exclude_sites`; vertical engines are picked with
- * `service`. Recency is `time_range` in both cases.
+ * One POST /search, or /news for Hacker News. The engine is picked with
+ * `service`; recency is `time_range` in both cases.
  */
 /** Allow filtered searches to finish while other lanes stream independently. */
 export const LANE_TIMEOUT_MS = 15_000;
@@ -71,8 +68,6 @@ export async function search(
       search_service: params.service ?? 'google',
       ...(params.timeRange ? { time_range: params.timeRange } : {}),
       max_results: params.maxResults ?? 8,
-      include_sites: params.includeSites ?? [],
-      exclude_sites: params.excludeSites ?? [],
     }),
     signal: laneSignal,
   });
