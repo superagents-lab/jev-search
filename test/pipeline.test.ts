@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildCandidates } from '@/lib/candidates';
 import { runSearch } from '@/lib/pipeline';
 import { memoryCache } from '@/lib/cache';
 import { compareItems } from '@/lib/rank';
@@ -43,6 +44,10 @@ function stubFetch(results?: Record<string, unknown>[]) {
         for (const [id, q] of Object.entries(questions)) {
           if (id === 'window') {
             answers[id] = { type: 'choice', choice: '7d', probabilities: { '7d': 0.8 }, confidence: 0.8 };
+          } else if (id === 'entity') {
+            answers[id] = { type: 'choice', choice: 'c0', probabilities: { c0: 0.9 }, confidence: 0.9 };
+          } else if (id === 'query') {
+            answers[id] = { type: 'choice', choice: 'c1', probabilities: { c0: 0.2, c1: 0.8 }, confidence: 0.8 };
           } else if (id.startsWith('source_')) {
             answers[id] = { type: 'noul', noul: id === 'source_reddit' ? 0.9 : 0.1 };
           } else if (q.type === 'noul') {
@@ -180,9 +185,10 @@ describe('runSearch', () => {
     const inputs = run.mock.calls[0]![1] as { state: string; fields: Record<string, unknown> };
     expect(inputs.state).toBe(request);
     expect(Object.keys(inputs.fields).sort()).toEqual(['github', 'hackernews', 'reddit']);
-    // Jev answers window and sources only, and needs no span choice for Reddit.
+    // The intent judgment also picks a fallback query from the candidates; Reddit needs no span choice.
     const intentCall = calls.find((c) => c.url.endsWith('/v1/systemone') && 'window' in (c.body.questions as object))!;
-    expect(Object.keys(intentCall.body.questions as object).filter((k) => !k.startsWith('source_'))).toEqual(['window']);
+    expect(Object.keys(intentCall.body.questions as object).filter((k) => !k.startsWith('source_'))).toEqual(['window', 'query', 'entity']);
+    expect(intentCall.body.state).toMatchObject({ candidates: { c0: request, c1: 'Bun 1.3' } });
     expect(spanCalls()).toHaveLength(0);
 
     const reddit = searchesOf('reddit');
@@ -195,7 +201,7 @@ describe('runSearch', () => {
     expect(out.tokens).toBe(240);
   });
 
-  it('gives each engine its own query: Clairic, then a Jev span, then the request as typed', async () => {
+  it('gives each engine its own query: Clairic, then a Jev span, then the intent pick', async () => {
     stubFetch();
     const request = 'On GitHub find FastAPI JWT authentication examples; on Reddit find FastAPI production performance experiences.';
     spanPick = (_state, instructions) =>
@@ -212,12 +218,12 @@ describe('runSearch', () => {
       google: 'FastAPI JWT authentication examples',
       github: 'FastAPI JWT authentication examples',
       reddit: 'FastAPI production performance experiences',
-      youtube: request,
+      youtube: buildCandidates(request)[1],
     });
-    expect(out.queryFrom).toEqual({ google: 'jev', github: 'clairic', reddit: 'jev', youtube: 'request' });
+    expect(out.queryFrom).toEqual({ google: 'jev', github: 'clairic', reddit: 'jev', youtube: 'intent' });
     expect(out.query).toBe(out.queries.google);
     expect(searchesOf('reddit')[0]!.body.query).toBe('FastAPI production performance experiences');
-    expect(searchesOf('youtube')[0]!.body.query).toBe(request);
+    expect(searchesOf('youtube')[0]!.body.query).toBe(buildCandidates(request)[1]);
 
     const spans = spanCalls();
     // Web and YouTube first; Reddit only after Clairic left it empty. GitHub never asks Jev.
@@ -250,14 +256,25 @@ describe('runSearch', () => {
     }
   });
 
-  it('sends the request as typed when span selection fails', async () => {
+  it("falls back to the intent's query pick when span selection fails, then to the request", async () => {
     stubFetch();
     failSpans = true;
     const request = 'who directed the movie Past Lives';
+    const picked = buildCandidates(request)[1]!;
     const out = await runSearch({ search1api: { apiKey: 's1' }, judge }, { request, window: 'any', sources: ['google', 'imdb'] });
-    expect(out.queries).toEqual({ google: request, imdb: request });
-    expect(out.queryFrom).toEqual({ google: 'request', imdb: 'request' });
+    expect(picked).not.toBe(request);
+    expect(out.queries).toEqual({ google: picked, imdb: picked });
+    expect(out.queryFrom).toEqual({ google: 'intent', imdb: 'intent' });
+    expect(searchesOf('imdb')[0]!.body.query).toBe(picked);
     expect(out.items.length).toBeGreaterThan(0);
+
+    vi.unstubAllGlobals();
+    calls.length = 0;
+    stubFetch();
+    // A two-word request has one candidate, so the intent asks no query question.
+    const typed = await runSearch({ search1api: { apiKey: 's1' }, judge }, { request: 'Bun 1.3', window: 'any', sources: ['google'] });
+    expect(typed.queries).toEqual({ google: 'Bun 1.3' });
+    expect(typed.queryFrom).toEqual({ google: 'request' });
   });
 
   it('respects explicit window and sources, one engine per source', async () => {

@@ -12,7 +12,7 @@ Built by Search1API. This is an independent project, not an official TypeSafe pr
 
 ## How it works
 
-1. **Understand.** The configured decision model answers typed questions about your request to choose sources and a time range. Each chosen engine then gets its own query, always a span of your own words with nothing translated or added. For Hacker News, Reddit and GitHub, Cloudflare's [Clairic](https://developers.cloudflare.com/workers-ai/models/clairic/) extraction model writes the query, running alongside the source and time decision. For every other engine, and for any of those three that Clairic leaves empty, the decision model picks the span that suits that engine. A request that names two platforms can therefore send each one its own part. If both steps fail, the request is sent as typed. This is the same query selection as Search1API's [Ask API](https://s1.dev/docs/basic/ask). You can override the source and time chips.
+1. **Understand.** The configured decision model answers typed questions about your request to choose sources and a time range. Each chosen engine then gets its own query, always a span of your own words with nothing translated or added. For Hacker News, Reddit and GitHub, Cloudflare's [Clairic](https://developers.cloudflare.com/workers-ai/models/clairic/) extraction model writes the query, running alongside the source and time decision. For every other engine, and for any of those three that Clairic leaves empty, the decision model picks the span that suits that engine. A request that names two platforms can therefore send each one its own part. If both steps fail, the engine gets the keyword query the decision model picked from a few trimmed versions of your request, and failing that the request as typed. This is the same query selection as Search1API's [Ask API](https://s1.dev/docs/basic/ask). You can override the source and time chips.
 2. **Search.** Every source searches its own engine: Google, DuckDuckGo and Yandex for the open web, the Hacker News news endpoint, and the Reddit, GitHub, X, arXiv, YouTube, Wikipedia, IMDb and WeChat engines. Calls run concurrently; one failed engine does not discard another engine's results.
 3. **Rank.** The decision model scores each result for relevance. Results are merged by URL, ordered by relevance, engine agreement and original rank, and streamed as each lane finishes. Lower-scoring results are grouped separately. A failed source shows a warning rather than a zero-result count.
 
@@ -174,6 +174,7 @@ Cloudflare installs dependencies from `pnpm-lock.yaml`. The build creates the Wo
 | --- | --- |
 | `src/lib/sources.ts` | Sources, engine mappings and time windows |
 | `src/lib/spans.ts`, `src/lib/extract.ts` | Per-engine queries: decision-model span choice, and Clairic extraction for keyword engines |
+| `src/lib/candidates.ts` | Trimmed keyword candidates for the fallback query |
 | `src/lib/typesafe.ts` | Typed intent and relevance judgments |
 | `src/lib/judge-config.ts` | Decision provider chain built from environment variables and bindings |
 | `src/lib/search1api.ts` | Search provider client and engine deadlines |

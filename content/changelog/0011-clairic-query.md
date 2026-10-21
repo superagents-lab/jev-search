@@ -11,4 +11,4 @@ Jev Search used to send one query to every engine. Each engine now gets its own 
 
 Hacker News, Reddit and GitHub now search only their own engines. The extra Google searches restricted to those sites are gone, because the search service already does that inside its own engines.
 
-This is the same query selection as Search1API's [Ask API](https://s1.dev/ask-api?utm_source=jev-search&utm_medium=changelog). If Clairic is unavailable, Jev picks those queries too. If both fail, the request is sent as you typed it.
+This is the same query selection as Search1API's [Ask API](https://s1.dev/ask-api?utm_source=jev-search&utm_medium=changelog). If Clairic is unavailable, Jev picks those queries too. If both fail, Jev's pick from a few trimmed versions of your request is used, and failing that the request as you typed it.

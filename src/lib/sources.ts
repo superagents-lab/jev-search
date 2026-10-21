@@ -34,6 +34,8 @@ export interface Source {
   ask: { question: string; yes: string; no: string };
   /** Searched when the request does not single out any source. */
   defaultOn: boolean;
+  /** Fall back to the intent's name-or-title pick instead of its keyword pick; unset everywhere, as in the Ask API. */
+  entityQuery?: boolean;
 }
 
 export const SOURCES: readonly Source[] = [

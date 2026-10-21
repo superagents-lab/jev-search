@@ -1,4 +1,5 @@
 import { cachedSearch, type ResultCache } from './cache';
+import { buildCandidates } from './candidates';
 import { extractQueries, isExtracted, type Extracted } from './extract';
 import { freshnessScore, isPublicationStale, resolvePublication, stripAgePrefix } from './freshness';
 import { mergeItems } from './merge';
@@ -31,8 +32,11 @@ export interface LaneError {
   message: string;
 }
 
-/** Clairic for keyword engines, a Jev span choice for the rest, the request as typed as the last fallback. */
-export type QueryOrigin = 'clairic' | 'jev' | 'request';
+/**
+ * Clairic for keyword engines, a Jev span choice for the rest, then the
+ * intent judgment's candidate pick, then the request as typed.
+ */
+export type QueryOrigin = 'clairic' | 'jev' | 'intent' | 'request';
 
 export interface IntentEvent {
   type: 'intent';
@@ -117,6 +121,7 @@ export async function* askStream(
   const started = performance.now();
   const now = deps.now ? deps.now() : new Date();
   const request = input.request.trim();
+  const candidates = buildCandidates(request);
 
   const runSearch = (params: SearchParams) =>
     cachedSearch(deps.cache, params, () => search(deps.search1api, params, signal));
@@ -125,7 +130,7 @@ export async function* askStream(
   //    extracts the keyword-engine queries; only an abort rejects the latter.
   const extractPromise: Promise<Extracted> = extractQueries(deps.ai, request, signal);
   extractPromise.catch(() => undefined);
-  const intent = await inferIntent(deps.judge, { request, now }, signal);
+  const intent = await inferIntent(deps.judge, { request, candidates, now }, signal);
 
   const window = input.window ?? intent.window.choice ?? DEFAULT_WINDOW;
   let sources: SourceId[];
@@ -141,7 +146,7 @@ export async function* askStream(
 
   // 2. Per-engine spans of the user's own words: Clairic for keyword engines,
   //    a Jev choice for the rest and for any keyword engine Clairic left out.
-  //    The request as typed is the last fallback.
+  //    The intent query (or entity query) comes next, the request as typed last.
   const spanContext = { request, sources, timeRange: win.timeRange };
   const [jevSpans, extracted] = await Promise.all([
     selectSpans(deps.judge, spanContext, signal, sources.filter((s) => !(deps.ai && isExtracted(s)))),
@@ -149,13 +154,16 @@ export async function* askStream(
   ]);
   const missing = deps.ai ? sources.filter((s) => isExtracted(s) && !extracted.queries[s]) : [];
   const retried = await selectSpans(deps.judge, spanContext, signal, missing);
+  const intentQuery = candidates[intent.query.index];
+  const entityQuery = candidates[intent.entity.index] ?? intentQuery;
   const queries: Partial<Record<SourceId, string>> = {};
   const queryFrom: Partial<Record<SourceId, QueryOrigin>> = {};
   for (const source of sources) {
     const clairic = isExtracted(source) ? extracted.queries[source] : undefined;
     const jev = jevSpans.queries[source] ?? retried.queries[source];
-    queries[source] = clairic ?? jev ?? request;
-    queryFrom[source] = clairic ? 'clairic' : jev ? 'jev' : 'request';
+    const picked = sourceById(source).entityQuery ? entityQuery : intentQuery;
+    queries[source] = clairic ?? jev ?? picked ?? request;
+    queryFrom[source] = clairic ? 'clairic' : jev ? 'jev' : picked && picked !== request ? 'intent' : 'request';
   }
   const queryFor = (source: SourceId): string => queries[source] ?? request;
   const intentMs = Math.round(performance.now() - started);
