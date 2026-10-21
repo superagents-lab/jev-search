@@ -17,7 +17,7 @@ function renderGoogle(error?: string) {
     },
     intent: {
       type: 'intent', request: 'TypeSafe Jev news in the past 24 hours',
-      query: 'TypeSafe Jev', queryExtracted: true,
+      query: 'TypeSafe Jev', queries: { google: 'TypeSafe Jev' }, queryFrom: { google: 'jev' },
       window: '24h', sources: ['google'], intentMs: 100, judge: 'typesafe',
       inferred: {
         window: { choice: '24h', confidence: 1 },

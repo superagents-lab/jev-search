@@ -13,18 +13,13 @@ export type SourceId =
   | 'wechat';
 
 /**
- * One Search1API `/search` or `/news` call. `service` is the engine; `site` restricts a
- * general engine with `include_sites`. A source runs all of its lanes in
- * parallel and merges them, so one engine going down or drifting does not
- * take the source with it, and a hit on two engines outranks a hit on one.
- *
- * Probed 2026-09-17 with site restriction + weekly window: google and
- * duckduckgo honour both and prefix snippets with an age ("3 days ago ...");
- * yahoo ignores the window, bing ignores the site, baidu returns nothing.
+ * One Search1API `/search` or `/news` call; `service` is the engine. Every
+ * source searches its own platform's engine only. Hacker News, Reddit and
+ * GitHub no longer add a Google site-restricted lane: the search service
+ * does that inside its own engines.
  */
 export interface Lane {
   service: string;
-  site?: string;
   /** False for engines that reject or ignore `time_range` (wikipedia, imdb, wechat). */
   timeFilter?: boolean;
 }
@@ -81,7 +76,7 @@ export const SOURCES: readonly Source[] = [
   {
     id: 'hackernews',
     label: 'Hacker News',
-    lanes: [{ service: 'google', site: 'news.ycombinator.com' }, { service: 'hackernews' }],
+    lanes: [{ service: 'hackernews' }],
     description: 'Hacker News threads and comments',
     ask: {
       question: 'Would Hacker News threads fit this request?',
@@ -93,7 +88,7 @@ export const SOURCES: readonly Source[] = [
   {
     id: 'reddit',
     label: 'Reddit',
-    lanes: [{ service: 'google', site: 'reddit.com' }, { service: 'reddit' }],
+    lanes: [{ service: 'reddit' }],
     description: 'Reddit posts and comment threads',
     ask: {
       question: 'Would Reddit threads fit this request?',
@@ -105,7 +100,7 @@ export const SOURCES: readonly Source[] = [
   {
     id: 'github',
     label: 'GitHub',
-    lanes: [{ service: 'google', site: 'github.com' }, { service: 'github' }],
+    lanes: [{ service: 'github' }],
     description: 'GitHub repositories, issues, pull requests and releases',
     ask: {
       question: 'Is the user looking for code: repositories, releases, issues, pull requests or open source projects?',

@@ -29,6 +29,17 @@ function sourceLines(state: AskState): Line[] {
   if (!intent) return [];
   return intent.sources.map((id) => {
     const source = sourceById(id);
+    // Engines can receive different spans of the request; name a source's own
+    // query when it is not the one in the "Looking for" line.
+    const asked = intent.queries[id];
+    const label =
+      asked && asked !== intent.query ? (
+        <>
+          {source.label} <span className="text-muted-foreground">for “{asked}”</span>
+        </>
+      ) : (
+        source.label
+      );
     const keys = source.lanes.map((l) => `${id}/${l.service}`);
     const answered = keys.filter((k) => k in state.found || k in state.lanes);
     const scored = keys.filter((k) => k in state.lanes);
@@ -37,8 +48,8 @@ function sourceLines(state: AskState): Line[] {
     const answering = rows.filter((i) => i.relevance >= OFF_TOPIC).length;
     const allFailed = scored.length === keys.length && scored.every((k) => state.lanes[k]?.error) && found === 0;
 
-    if (allFailed) return { key: id, state: 'failed', icon: id, text: <>{source.label} didn't answer</> };
-    if (answered.length === 0) return { key: id, state: 'doing', icon: id, text: <>Asking {source.label}…</> };
+    if (allFailed) return { key: id, state: 'failed', icon: id, text: <>{label} didn't answer</> };
+    if (answered.length === 0) return { key: id, state: 'doing', icon: id, text: <>Asking {label}…</> };
     if (scored.length < keys.length) {
       return {
         key: id,
@@ -46,7 +57,7 @@ function sourceLines(state: AskState): Line[] {
         icon: id,
         text: (
           <>
-            {source.label} · {found} found
+            {label} · {found} found
             {scored.length > 0 && `, ${answering} answer you so far`}
             <span className="text-muted-foreground"> · checking which answer you…</span>
           </>
@@ -57,7 +68,7 @@ function sourceLines(state: AskState): Line[] {
       key: id,
       state: 'done',
       icon: id,
-      text: found === 0 ? <>{source.label} · nothing there</> : <>{source.label} · {answering} of {found} answer you</>,
+      text: found === 0 ? <>{label} · nothing there</> : <>{label} · {answering} of {found} answer you</>,
     };
   });
 }

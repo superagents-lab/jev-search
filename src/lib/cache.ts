@@ -16,12 +16,10 @@ const TTL_SECONDS: Record<string, number> = {
 
 export function cacheKey(params: SearchParams): string {
   return [
-    'v2', // v1 discarded published_date before caching results.
+    'v3', // v1 discarded published_date; v2 keyed site filters, which are gone.
     params.service ?? 'google',
     params.query.trim().toLowerCase(),
     params.timeRange ?? 'any',
-    (params.includeSites ?? []).join(','),
-    (params.excludeSites ?? []).join(','),
     params.maxResults ?? 8,
   ].join('|');
 }

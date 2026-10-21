@@ -1,9 +1,10 @@
 import { cachedSearch, type ResultCache } from './cache';
-import { extractQuery } from './clairic';
+import { extractQueries, isExtracted, type Extracted } from './extract';
 import { freshnessScore, isPublicationStale, resolvePublication, stripAgePrefix } from './freshness';
 import { mergeItems } from './merge';
 import type { RankedItem } from './rank';
 import { search, type RawResult, type Search1ApiConfig, type SearchParams } from './search1api';
+import { selectSpans } from './spans';
 import {
   DEFAULT_SOURCE_IDS,
   DEFAULT_WINDOW,
@@ -30,20 +31,25 @@ export interface LaneError {
   message: string;
 }
 
+/** Clairic for keyword engines, a Jev span choice for the rest, the request as typed as the last fallback. */
+export type QueryOrigin = 'clairic' | 'jev' | 'request';
+
 export interface IntentEvent {
   type: 'intent';
   request: string;
-  /** Query sent to every engine: Clairic's extraction, or the request as typed. */
+  /** Query of the first chosen source, for one-line summaries; see `queries` for each source. */
   query: string;
-  /** False when the request was sent as typed because extraction failed or found nothing. */
-  queryExtracted: boolean;
+  /** Query each chosen source's engines receive. */
+  queries: Partial<Record<SourceId, string>>;
+  /** Where each source's query came from; `request` means the words as typed. */
+  queryFrom: Partial<Record<SourceId, QueryOrigin>>;
   window: WindowId;
   sources: SourceId[];
   inferred: {
     window: Intent['window'];
     sources: Intent['sources'];
   };
-  /** Time until both the intent judgment and the query extraction had answered. */
+  /** Time until every chosen source had its query. */
   intentMs: number;
   /** Decision provider that interpreted the request. */
   judge: ProviderId;
@@ -90,7 +96,7 @@ export interface PipelineDeps {
   search1api: Search1ApiConfig;
   /** Decision providers, primary first. */
   judge: JudgeConfig;
-  /** Workers AI binding for Clairic query extraction; absent means the request is sent as typed. */
+  /** Workers AI binding for Clairic query extraction; absent means keyword engines use Jev spans too. */
   ai?: JevBinding;
   /** Optional KV-like store; lanes are cached by query, engine and window. */
   cache?: ResultCache;
@@ -115,13 +121,11 @@ export async function* askStream(
   const runSearch = (params: SearchParams) =>
     cachedSearch(deps.cache, params, () => search(deps.search1api, params, signal));
 
-  // 1. Understand the request: Jev picks window and sources while Clairic
-  //    extracts the query, in parallel.
-  const [intent, extraction] = await Promise.all([
-    inferIntent(deps.judge, { request, now }, signal),
-    extractQuery(deps.ai, request, signal),
-  ]);
-  const intentMs = Math.round(performance.now() - started);
+  // 1. Understand the request. Jev picks window and sources while Clairic
+  //    extracts the keyword-engine queries; only an abort rejects the latter.
+  const extractPromise: Promise<Extracted> = extractQueries(deps.ai, request, signal);
+  extractPromise.catch(() => undefined);
+  const intent = await inferIntent(deps.judge, { request, now }, signal);
 
   const window = input.window ?? intent.window.choice ?? DEFAULT_WINDOW;
   let sources: SourceId[];
@@ -132,16 +136,37 @@ export async function* askStream(
     const wanted = SOURCE_IDS.filter((id) => intent.sources[id] >= SOURCE_PROB_THRESHOLD);
     sources = wanted.length > 0 ? wanted : [...DEFAULT_SOURCE_IDS];
   }
-  const query = extraction.query;
   const win = windowById(window);
   const maxAge = win.hours * WINDOW_TOLERANCE;
-  let tokens = intent.usage.input_tokens + extraction.tokens;
+
+  // 2. Per-engine spans of the user's own words: Clairic for keyword engines,
+  //    a Jev choice for the rest and for any keyword engine Clairic left out.
+  //    The request as typed is the last fallback.
+  const spanContext = { request, sources, timeRange: win.timeRange };
+  const [jevSpans, extracted] = await Promise.all([
+    selectSpans(deps.judge, spanContext, signal, sources.filter((s) => !(deps.ai && isExtracted(s)))),
+    extractPromise,
+  ]);
+  const missing = deps.ai ? sources.filter((s) => isExtracted(s) && !extracted.queries[s]) : [];
+  const retried = await selectSpans(deps.judge, spanContext, signal, missing);
+  const queries: Partial<Record<SourceId, string>> = {};
+  const queryFrom: Partial<Record<SourceId, QueryOrigin>> = {};
+  for (const source of sources) {
+    const clairic = isExtracted(source) ? extracted.queries[source] : undefined;
+    const jev = jevSpans.queries[source] ?? retried.queries[source];
+    queries[source] = clairic ?? jev ?? request;
+    queryFrom[source] = clairic ? 'clairic' : jev ? 'jev' : 'request';
+  }
+  const queryFor = (source: SourceId): string => queries[source] ?? request;
+  const intentMs = Math.round(performance.now() - started);
+  let tokens = intent.usage.input_tokens + jevSpans.tokens + retried.tokens + extracted.tokens;
 
   yield {
     type: 'intent',
     request,
-    query,
-    queryExtracted: extraction.extracted,
+    query: queryFor(sources[0]!),
+    queries,
+    queryFrom,
     window,
     sources,
     inferred: { window: intent.window, sources: intent.sources },
@@ -149,7 +174,7 @@ export async function* askStream(
     judge: intent.provider,
   };
 
-  // 2. Every lane searches, filters by age, and gets scored on its own. The
+  // 3. Every lane searches, filters by age, and gets scored on its own. The
   //    'found' event goes out between the two steps so the page can show the
   //    rows before they are ordered.
   const found: FoundEvent[] = [];
@@ -161,11 +186,10 @@ export async function* askStream(
   const runLane = async (source: SourceId, lane: Lane): Promise<LaneEvent> => {
     const t0 = performance.now();
     const params: SearchParams = {
-      query,
+      query: queryFor(source),
       service: lane.service,
       timeRange: lane.timeFilter === false ? undefined : win.timeRange,
       maxResults: RESULTS_PER_LANE,
-      includeSites: lane.site ? [lane.site] : [],
     };
     let raw: RawResult[];
     try {
@@ -212,7 +236,7 @@ export async function* askStream(
       announce({ type: 'found', source, engine: lane.service, items: items.map((it) => ({ ...it })), searchMs });
     }
 
-    // 3. Judge relevance of this lane's rows against the original request.
+    // 4. Judge relevance of this lane's rows against the original request.
     const t1 = performance.now();
     let error: string | undefined;
     if (items.length > 0) {

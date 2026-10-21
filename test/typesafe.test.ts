@@ -113,6 +113,12 @@ describe('Cloudflare Workers AI provider', () => {
     expect(options).toEqual({ signal: controller.signal });
   });
 
+  it('reads answers that the binding wraps in an async-style result', async () => {
+    const ai = fakeBinding(async () => ({ state: 'Completed', result: NATIVE }));
+    const res = await systemOne(one({ provider: 'cloudflare', ai }), 'x', QUESTIONS);
+    expect(res).toEqual({ ...NATIVE, provider: 'cloudflare' });
+  });
+
   it('fills in missing model and usage', async () => {
     const ai = fakeBinding(async () => ({ answers: NATIVE.answers }));
     const res = await systemOne(one({ provider: 'cloudflare', ai }), 'x', QUESTIONS);
