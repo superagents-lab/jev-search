@@ -2,7 +2,7 @@
 
 [![Jev Search homepage with model selector](public/og-home.png)](https://jev.s1.dev)
 
-Search the web in plain language. A decision model such as [TypeSafe's Jev](https://typesafe.ai), [Cloudflare's Clef](https://developers.cloudflare.com/workers-ai/models/clef/) or [OpenAI's GPT-6 Luna](https://developers.openai.com/api/docs/guides/decisions) chooses sources, time ranges and search terms, then ranks the results returned through [Search1API](https://www.search1api.com). You get links and snippets, with visible relevance scores and editable filters. No generated answers.
+Search the web in plain language. A decision model such as [TypeSafe's Jev](https://typesafe.ai), [Cloudflare's Clef](https://developers.cloudflare.com/workers-ai/models/clef/) or [OpenAI's GPT-6 Luna](https://developers.openai.com/api/docs/guides/decisions) chooses sources, time ranges and search terms, then ranks the results returned through [Search1API](https://s1.dev). You get links and snippets, with visible relevance scores and editable filters. No generated answers.
 
 **[Try Jev Search](https://jev.s1.dev)**
 
@@ -28,7 +28,7 @@ The optional `s` source list is capped at the number of supported sources (curre
 
 ## Local development
 
-Requires Node.js 22.12+ and pnpm 10.8.0. Obtain an API key from [Search1API](https://www.search1api.com) and configure at least one decision provider: [TypeSafe](https://typesafe.ai), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/models/clef/), [Vercel AI Gateway](https://vercel.com/ai-gateway/models/jev) or the [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions); see [Decision providers](#decision-providers). Cloudflare providers use the Workers AI binding and need no separate provider key.
+Requires Node.js 22.12+ and pnpm 10.8.0. Obtain an API key from [Search1API](https://s1.dev) and configure at least one decision provider: [TypeSafe](https://typesafe.ai), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/models/clef/), [Vercel AI Gateway](https://vercel.com/ai-gateway/models/jev) or the [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions); see [Decision providers](#decision-providers). Cloudflare providers use the Workers AI binding and need no separate provider key.
 
 ```bash
 git clone https://github.com/superagents-lab/jev-search.git

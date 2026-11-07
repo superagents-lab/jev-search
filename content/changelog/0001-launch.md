@@ -9,7 +9,7 @@ Jev Search is a search engine for requests written the way you would ask a perso
 ## How a search runs
 
 - **Understand.** [TypeSafe's Jev](https://typesafe.ai) answers typed questions about your request: which keyword query fits it, which sources it calls for, and whether it implies a time window. You can override the source and time chips afterwards.
-- **Search.** The chosen engines run in parallel through [Search1API](https://www.search1api.com): Google and DuckDuckGo for the open web, Hacker News, Reddit and GitHub through a site search plus their own engines, and dedicated engines for X, arXiv, YouTube, Wikipedia, IMDb and WeChat.
+- **Search.** The chosen engines run in parallel through [Search1API](https://s1.dev): Google and DuckDuckGo for the open web, Hacker News, Reddit and GitHub through a site search plus their own engines, and dedicated engines for X, arXiv, YouTube, Wikipedia, IMDb and WeChat.
 - **Rank.** Jev scores every result for relevance. Results are merged by URL and ordered by relevance, agreement between engines and original rank. Off-topic results are grouped at the bottom instead of mixed in.
 
 Results stream in as each engine finishes, and the page shows its work: the query it chose, the sources it is asking, and how many results each returned. Each relevance score is visible next to its result.
