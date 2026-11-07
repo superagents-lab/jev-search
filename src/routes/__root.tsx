@@ -153,7 +153,7 @@ function RootDocument({ children }: { readonly children: ReactNode }) {
                 Judgment by{' '}
                 <JudgeCredit />
                 {' · '}Search by{' '}
-                <a className="text-foreground/80 hover:underline" href="https://www.search1api.com" rel="noreferrer" target="_blank">
+                <a className="text-foreground/80 hover:underline" href="https://s1.dev" rel="noreferrer" target="_blank">
                   Search1API
                 </a>
               </span>
