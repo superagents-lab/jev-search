@@ -3,6 +3,8 @@ import { mergeItems } from './merge';
 import type { AskEvent, IntentEvent, LaneEvent } from './pipeline';
 import type { RankedItem } from './rank';
 import type { SourceId, WindowId } from './sources';
+import { TURNSTILE_HEADER, type AccessDenialBody } from './access';
+import { turnstileToken } from './turnstile-client';
 
 export interface AskState {
   phase: 'idle' | 'understanding' | 'searching' | 'done' | 'error';
@@ -15,9 +17,11 @@ export interface AskState {
   lanes: Record<string, LaneEvent>;
   totalMs: number | null;
   message: string | null;
+  /** Set when the search was refused by the rate limit or the page check: where to get more. */
+  askApi: AccessDenialBody['askApi'] | null;
 }
 
-type Incoming = AskEvent | { type: 'error'; message: string };
+type Incoming = AskEvent | { type: 'error'; message: string; askApi?: AccessDenialBody['askApi'] };
 
 const IDLE: AskState = {
   phase: 'idle',
@@ -27,6 +31,7 @@ const IDLE: AskState = {
   lanes: {},
   totalMs: null,
   message: null,
+  askApi: null,
 };
 
 function reduce(s: AskState, event: Incoming): AskState {
@@ -45,7 +50,7 @@ function reduce(s: AskState, event: Incoming): AskState {
     case 'done':
       return { ...s, phase: 'done', totalMs: event.totalMs };
     case 'error':
-      return { ...s, phase: 'error', message: event.message };
+      return { ...s, phase: 'error', message: event.message, askApi: event.askApi ?? null };
   }
 }
 
@@ -71,9 +76,13 @@ export function useAsk(params: { q: string; w?: WindowId; s?: SourceId[]; m?: st
     (async () => {
       let response: Response;
       try {
+        const token = await turnstileToken();
+        if (controller.signal.aborted) return;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers[TURNSTILE_HEADER] = token;
         response = await fetch('/api/ask', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(params),
           signal: controller.signal,
         });
@@ -83,8 +92,8 @@ export function useAsk(params: { q: string; w?: WindowId; s?: SourceId[]; m?: st
         return;
       }
       if (!response.ok || !response.body) {
-        const body = (await response.json().catch(() => ({}))) as { error?: string };
-        apply({ type: 'error', message: body.error ?? `HTTP ${response.status}` });
+        const body = (await response.json().catch(() => ({}))) as Partial<AccessDenialBody>;
+        apply({ type: 'error', message: body.error ?? `HTTP ${response.status}`, askApi: body.askApi });
         return;
       }
 
