@@ -13,7 +13,10 @@
     "TYPESAFE_MODEL": "jev-latest",
     "AI_GATEWAY_MODEL": "typesafe-ai/jev",
     "CLOUDFLARE_AI_MODEL": "typesafe/jev",
-    "OPENAI_DECISIONS_MODEL": "gpt-6-luna"
+    "OPENAI_DECISIONS_MODEL": "gpt-6-luna",
+    // Public Turnstile site key for jev.s1.dev. Self-hosters: create your own widget, or leave
+    // TURNSTILE_SECRET_KEY unset to turn the check off.
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAGUP45gjrzhTM-mz"
   },
   // Secrets are uploaded per deployment with `wrangler secret put` and listed in .dev.vars.example,
   // which also drives type generation. Only SEARCH1API_API_KEY and the key of your primary Jev
@@ -28,6 +31,8 @@
   //   AI_GATEWAY_API_KEY   vercel: Vercel AI Gateway
   //   OPENAI_API_KEY       openai: OpenAI Decisions API (GPT-6 Luna)
   //   GITHUB_TOKEN         optional; authenticates the cached GitHub star-count lookup
+  //   TURNSTILE_SECRET_KEY optional; when set, /api/ask only runs searches that carry a valid
+  //                        Turnstile token from the page (site key: TURNSTILE_SITE_KEY above)
   //                        cloudflare, clef and clef-flash need no secret; they use the binding below.
   // Workers AI binding: Clairic query extraction for Hacker News, Reddit and GitHub, plus the cloudflare, clef and
   // clef-flash decision providers when JEV_PROVIDERS lists them.
@@ -35,7 +40,7 @@
   "ratelimits": [{
     "name": "SEARCH_RATE_LIMIT",
     "namespace_id": "2026091801",
-    "simple": { "limit": 10, "period": 60 }
+    "simple": { "limit": 4, "period": 60 }
   }],
   // Self-hosters: create a namespace and replace this public resource ID.
   "kv_namespaces": [{ "binding": "CACHE", "id": "ff6092d31fbf4f5999be145d5dd8e84d" }],

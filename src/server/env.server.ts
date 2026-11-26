@@ -11,6 +11,8 @@ export function getEnv() {
     AI_GATEWAY_API_KEY?: string;
     OPENAI_API_KEY?: string;
     JEV_PROVIDERS?: string;
+    TURNSTILE_SECRET_KEY?: string;
+    TURNSTILE_SITE_KEY?: string;
   } = workerEnv;
   if (!env.SEARCH1API_API_KEY) {
     throw new Error('SEARCH1API_API_KEY is not set (see .dev.vars.example)');

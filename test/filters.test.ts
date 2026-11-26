@@ -7,7 +7,7 @@ import type { AskState } from '@/lib/use-ask';
 
 function renderGoogle(error?: string) {
   const state: AskState = {
-    phase: 'done', items: [], totalMs: 15_000, message: null,
+    phase: 'done', items: [], totalMs: 15_000, message: null, askApi: null,
     found: { 'google/google': 0 },
     lanes: {
       'google/google': {

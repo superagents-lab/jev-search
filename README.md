@@ -59,7 +59,7 @@ The application uses TanStack Start, React and the Cloudflare Vite plugin. You n
 1. Run `pnpm exec wrangler login`.
 2. In `wrangler.jsonc`, choose a Worker `name`. Remove `routes` to use a `workers.dev` URL, or replace `jev.s1.dev` with a domain in your Cloudflare account. Update the origin in `src/lib/seo.ts` and `public/robots.txt` to match your deployment; the sitemap and changelog feed are generated from `src/lib/seo.ts`. Remove or replace the Cloudflare Web Analytics snippet in `src/routes/__root.tsx`; the committed token belongs to the hosted demo. The changelog in `content/changelog/` describes the hosted demo; delete its entries or replace them with your own.
 3. Run `pnpm exec wrangler kv namespace create jev-search-cache` and replace the `CACHE` namespace ID with the returned ID. The committed ID belongs to the hosted demo; it is not a credential.
-4. Choose a unique rate-limit `namespace_id` in your account. The default limit is 10 searches per IP per minute per Cloudflare location; it is not a global spending cap. Searches triggered by source or time filter changes count toward the same limit. `CACHE` and `SEARCH_RATE_LIMIT` are optional; regenerate types after changing bindings.
+4. Choose a unique rate-limit `namespace_id` in your account. The default limit is 4 searches per IP per minute per Cloudflare location; it is not a global spending cap. When `CACHE` is bound, each IP is also limited to 50 searches per UTC day (`DAILY_SEARCH_LIMIT` in `src/lib/access.ts`). Searches triggered by source or time filter changes count toward the same limit. `CACHE` and `SEARCH_RATE_LIMIT` are optional; regenerate types after changing bindings.
 5. Upload your own provider keys and deploy:
 
 ```bash
@@ -72,7 +72,7 @@ pnpm run deploy:dry-run
 pnpm run deploy
 ```
 
-Wrangler can create the Worker when uploading its first secret. Provider keys stay in Cloudflare secrets and are never included in the browser bundle. Each search can make several billable provider calls. Configure provider spending limits for a public deployment; the same-origin check is a browser boundary, not authentication.
+Wrangler can create the Worker when uploading its first secret. Provider keys stay in Cloudflare secrets and are never included in the browser bundle. Each search can make several billable provider calls. Configure provider spending limits for a public deployment; the same-origin check is a browser boundary, not authentication. To stop scripts from calling `/api/ask` directly, create a [Turnstile](https://developers.cloudflare.com/turnstile/) widget for your domain, put its site key in `TURNSTILE_SITE_KEY` in `wrangler.jsonc` and upload its secret as `TURNSTILE_SECRET_KEY`; the page then sends a single-use token with every search and the server refuses searches without a valid one. Refused and rate-limited searches return a `code` and an `askApi` link to Search1API's Ask API.
 
 ### Decision providers
 

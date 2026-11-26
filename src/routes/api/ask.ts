@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { TURNSTILE_HEADER, denialBody, denialStatus, verifyTurnstile, withinDailyLimit, type AccessDenial } from '@/lib/access';
 import { askStream, type AskEvent } from '@/lib/pipeline';
 import { selectModel } from '@/lib/judge-config';
 import { validateAskRequest } from '@/lib/validate';
@@ -15,6 +16,10 @@ function sameOrigin(request: Request): boolean {
   const origin = request.headers.get('origin');
   if (!origin) return request.headers.get('sec-fetch-site') === 'same-origin';
   return origin === new URL(request.url).origin;
+}
+
+function deny(code: AccessDenial): Response {
+  return json(denialStatus(code), denialBody(code));
 }
 
 function clientKey(request: Request): string {
@@ -56,12 +61,20 @@ export const Route = createFileRoute('/api/ask')({
           return json(400, { error: error instanceof Error ? error.message : 'Invalid model' });
         }
 
+        const address = clientKey(request);
         if (env.SEARCH_RATE_LIMIT) {
-          const { success } = await env.SEARCH_RATE_LIMIT.limit({ key: clientKey(request) });
-          if (!success) {
-            return json(429, { error: 'Too many searches from this address. Try again in a minute.' });
-          }
+          const { success } = await env.SEARCH_RATE_LIMIT.limit({ key: address });
+          if (!success) return deny('rate_limited');
         }
+        if (env.TURNSTILE_SECRET_KEY) {
+          const verdict = await verifyTurnstile(
+            env.TURNSTILE_SECRET_KEY,
+            request.headers.get(TURNSTILE_HEADER),
+            request.headers.get('cf-connecting-ip')
+          );
+          if (verdict !== 'ok') return deny(verdict);
+        }
+        if (env.CACHE && !(await withinDailyLimit(env.CACHE, address))) return deny('daily_limit');
 
         const deps = {
           search1api: { apiKey: env.SEARCH1API_API_KEY, baseUrl: env.SEARCH1API_BASE_URL },

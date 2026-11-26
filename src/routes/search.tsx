@@ -98,6 +98,15 @@ function SearchPage() {
           <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
             <p className="font-medium">Search failed</p>
             <p className="mt-1 text-muted-foreground">{state.message}</p>
+            {state.askApi && (
+              <p className="mt-3 text-muted-foreground">
+                Need more searches, or want to run this from your own code or agent? Use the{' '}
+                <a className="text-link underline" href={state.askApi.url} rel="noopener" target="_blank">
+                  Search1API Ask API
+                </a>
+                , which runs the same pipeline.
+              </p>
+            )}
           </div>
         )}
 
